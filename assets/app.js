@@ -166,7 +166,47 @@
     package: ["ใส่ชื่อแพ็กเกจก่อน", "Enter the package name."],
     birth: ["วันเกิดไม่ถูกต้อง", "That date of birth doesn't look right."],
     terms: ["กรุณายอมรับนโยบายความเป็นส่วนตัวก่อน", "Please accept the privacy policy first."],
+    slip: ["ไฟล์สลิปใช้ไม่ได้ ลองถ่ายหรือแคปหน้าจอใหม่เป็นรูปภาพ", "That slip file can't be used. Please attach a photo or screenshot."],
+    slip_many: ["ส่งสลิปครบ 5 ครั้งแล้ว กรุณาโทรหาเรา", "You've sent 5 slips already. Please call us."],
+    hold_expired: ["หมดเวลาชำระและรอบนี้มีคนจองไปแล้ว ถ้าโอนแล้วกรุณาโทรหาเรา ทีมงานจะช่วยเลื่อนรอบหรือคืนเงินให้", "Time ran out and this session has filled up. If you've already paid, please call us and we'll sort it out."],
+    promptpay: ["เบอร์พร้อมเพย์ต้องเป็นเบอร์มือถือ 10 หลัก หรือเลขผู้เสียภาษี 13 หลัก", "PromptPay must be a 10-digit mobile number or 13-digit tax ID."],
   };
+  // ---------- PromptPay QR (EMVCo payload with the amount filled in) ----------
+  function promptPayPayload(id, amount) {
+    const f = (tag, v) => tag + String(v.length).padStart(2, "0") + v;
+    const d = String(id || "").replace(/\D/g, "");
+    const acc = d.length >= 13 ? f(d.length === 15 ? "03" : "02", d) : f("01", ("0000000000000" + "66" + d.replace(/^0/, "")).slice(-13));
+    let s = f("00", "01") + f("01", amount ? "12" : "11") + f("29", f("00", "A000000677010111") + acc) + f("53", "764") + (amount ? f("54", Number(amount).toFixed(2)) : "") + f("58", "TH") + "6304";
+    let crc = 0xffff;
+    for (let i = 0; i < s.length; i++) { crc ^= s.charCodeAt(i) << 8; for (let j = 0; j < 8; j++) crc = crc & 0x8000 ? ((crc << 1) ^ 0x1021) & 0xffff : (crc << 1) & 0xffff; }
+    return s + crc.toString(16).toUpperCase().padStart(4, "0");
+  }
+  function qrSVG(text) {
+    if (!window.qrcode) return "";
+    const q = window.qrcode(0, "M"); q.addData(text); q.make();
+    const n = q.getModuleCount(), m = 2; let path = "";
+    for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (q.isDark(r, c)) path += `M${c + m} ${r + m}h1v1h-1z`;
+    return `<svg class="qr" viewBox="0 0 ${n + m * 2} ${n + m * 2}" role="img" aria-label="PromptPay QR" shape-rendering="crispEdges"><rect width="100%" height="100%" fill="#fff"/><path d="${path}" fill="#000"/></svg>`;
+  }
+  // shrink a slip photo to a small JPEG before sending it
+  function slipData(file) {
+    return new Promise((resolve, reject) => {
+      if (!file || !/^image\//.test(file.type)) return reject(Object.assign(new Error("slip"), { code: "slip" }));
+      const img = new Image(), url = URL.createObjectURL(file);
+      img.onload = () => {
+        const k = Math.min(1, 1400 / Math.max(img.width, img.height)), cv = document.createElement("canvas");
+        cv.width = Math.round(img.width * k); cv.height = Math.round(img.height * k);
+        const cx = cv.getContext("2d"); cx.fillStyle = "#fff"; cx.fillRect(0, 0, cv.width, cv.height); cx.drawImage(img, 0, 0, cv.width, cv.height);
+        URL.revokeObjectURL(url);
+        let q = 0.82, out = cv.toDataURL("image/jpeg", q);
+        while (out.length > 1000000 && q > 0.4) { q -= 0.12; out = cv.toDataURL("image/jpeg", q); }
+        resolve(out);
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(Object.assign(new Error("slip"), { code: "slip" })); };
+      img.src = url;
+    });
+  }
+  const hasPayInfo = () => !!(C.promptpay || C.bank_account);
   const errText = (e) => { const m = ERR[e && e.code] || ERR[e && e.message]; return m ? P(m[0], m[1]) : P("ระบบขัดข้อง ลองใหม่อีกครั้ง", "Something went wrong. Please try again."); };
 
   // ---------- state ----------
@@ -288,7 +328,7 @@
 <section class="section" id="first" aria-labelledby="first-title"><div class="wrap">
   <div class="section-head"><h2 id="first-title">${P("เตรียมตัวสำหรับครั้งแรก", "Your first visit")}</h2></div>
   <ol class="steps">
-    <li><div><h3>${P("จองรอบออนไลน์", "Book online")}</h3><p>${P("เลือกวัน เวลา และจำนวนคน แล้วชำระเงินที่ร้านตอนมาถึง", "Choose a day and time, then how many people. You pay at the shop when you arrive.")}</p></div></li>
+    <li><div><h3>${P("จองรอบออนไลน์", "Book online")}</h3><p>${P("เลือกวัน เวลา และจำนวนคน แล้วโอนผ่านพร้อมเพย์ แนบสลิปเพื่อยืนยันที่นั่ง", "Choose a day, time and how many people, then pay by PromptPay and attach the slip to confirm.")}</p></div></li>
     <li><div><h3>${P("มาก่อนเวลา 10–15 นาที", "Arrive 10–15 minutes early")}</h3><p>${P("เตรียมชุดว่ายน้ำหรือชุดที่เปียกได้ ทีมงานจะอธิบายวิธีแช่ให้", "Bring swimwear or clothes that can get wet. Our team will explain how to get started.")}</p></div></li>
     <li><div><h3>${P("แช่น้ำเย็นและอบซาวน่า", "Ice bath and sauna")}</h3><p>${P("เริ่มแช่ช่วงสั้น ๆ ไม่ต้องฝืน และพักได้เมื่อรู้สึกว่าพอแล้ว", "Keep your first dips short, go at your own pace and take breaks when you need them.")}</p></div></li>
     <li><div><h3>${P("พักในสวนก่อนกลับ", "Rest in the garden")}</h3><p>${P("ใช้เวลานั่งพักในสวนสักหน่อยก่อนกลับ", "Take a little time to relax in the garden before heading home.")}</p></div></li>
@@ -296,7 +336,7 @@
 </div></section>
 
 <section class="section section--sage" id="price" aria-labelledby="price-title"><div class="wrap">
-  <div class="section-head"><h2 id="price-title">${P("ราคาต่อรอบ", "Session prices")}</h2><p class="lede">${P(`Ice Bath + Sauna ใช้บริการได้ ${C.duration / 60} ชั่วโมง เริ่มรอบใหม่ทุกชั่วโมง ชำระที่ร้าน`, `Ice bath and sauna for ${C.duration / 60} hours. Sessions start every hour; pay at the shop.`)}</p></div>
+  <div class="section-head"><h2 id="price-title">${P("ราคาต่อรอบ", "Session prices")}</h2><p class="lede">${P(`Ice Bath + Sauna ใช้บริการได้ ${C.duration / 60} ชั่วโมง เริ่มรอบใหม่ทุกชั่วโมง ชำระตอนจองออนไลน์`, `Ice bath and sauna for ${C.duration / 60} hours. Sessions start every hour; pay online when you book.`)}</p></div>
   <div class="prices">
     <article class="price-tile"><h3>${P("1 คน", "1 person")}</h3><p class="price-amount">${baht(C.price)}</p><p class="price-sub">${P("ต่อคน", "per person")}</p></article>
     ${pairOn() ? `<article class="price-tile price-tile--deal"><h3>${P("มา 2 คน", "2 people")}</h3><p class="price-amount">${baht(C.pair_price)}</p><p class="price-sub">${P(`ปกติ ${baht(C.price * 2)} · ใช้ราคาโปรได้ทุกคู่ในกลุ่ม`, `instead of ${baht(C.price * 2)}, for every pair in your group`)}</p></article>` : ""}
@@ -325,7 +365,7 @@
       [P("ไม่เคยแช่น้ำเย็นมาก่อน มาได้ไหม", "I've never done an ice bath. Can I come?"), P("ได้ค่ะ ทีมงานจะอธิบายวิธีก่อนเริ่ม ครั้งแรกค่อย ๆ แช่ช่วงสั้น ๆ ตามที่ไหว", "Yes. Our team will explain how to get started. Begin with short dips at your own pace.")],
       [P("ต้องเตรียมอะไรมา", "What should I bring?"), P("ชุดว่ายน้ำหรือชุดที่เปียกได้ และมาก่อนเวลา 10–15 นาที", "Swimwear or clothes that can get wet. Please arrive 10–15 minutes early.")],
       [P(`${baht(C.price)} รวมอะไรบ้าง`, `What does ${baht(C.price)} include?`), P(`Ice Bath และ Sauna ใช้ได้ ${C.duration / 60} ชั่วโมงนับจากเวลาที่จอง ต่อคน${pairOn() ? ` มา 2 คนจ่าย ${baht(C.pair_price)}` : ""}`, `The ice bath and sauna for ${C.duration / 60} hours from your booked time, per person.${pairOn() ? ` Two people pay ${baht(C.pair_price)}.` : ""}`)],
-      [P("ชำระเงินอย่างไร", "How do I pay?"), P("จองออนไลน์แล้วชำระที่ร้านตอนมาถึง รับเงินสด โอน และบัตร", "Book online and pay at the shop when you arrive: cash, transfer or card.")],
+      [P("ชำระเงินอย่างไร", "How do I pay?"), P(`โอนผ่านพร้อมเพย์ตอนจอง แล้วแนบสลิป ต้องชำระภายใน ${C.hold_min || 15} นาที ไม่อย่างนั้นที่นั่งจะถูกปล่อยให้คนอื่น`, `Pay by PromptPay when you book and attach the slip. Pay within ${C.hold_min || 15} minutes or the places are released.`)],
       [P("มากันเป็นกลุ่มได้ไหม", "Can we come as a group?"), P(`ได้ รับรอบละไม่เกิน ${C.capacity} คน (เสาร์-อาทิตย์และวันหยุดนักขัตฯ ${C.capacity_weekend || C.capacity} คน) เลือกจำนวนคนตอนจอง ถ้าต้องการจองทั้งรอบหรือกลุ่มใหญ่ โทรหาเรา`, `Yes. Each session takes up to ${C.capacity} people (${C.capacity_weekend || C.capacity} on weekends and public holidays). For a private session or a bigger group, please call us.`)],
       [P("เลื่อนหรือยกเลิกได้ไหม", "Can I move or cancel?"), policyLine()],
       [P("มีข้อควรระวังด้านสุขภาพไหม", "Any health precautions?"), P("การแช่น้ำเย็นและซาวน่าอาจไม่เหมาะกับผู้มีโรคหัวใจ ความดันสูงที่ยังคุมไม่ได้ หรือผู้ตั้งครรภ์ ถ้าไม่แน่ใจกรุณาปรึกษาแพทย์ก่อน และบอกทีมงานเมื่อมาถึง", "Cold water and sauna may not suit people with heart conditions, uncontrolled high blood pressure, or who are pregnant. If unsure, ask your doctor first and tell our team when you arrive.")],
@@ -433,7 +473,7 @@
     const fe = BK.fieldErr;
     const field = (k, label, input) => `<div class="field${fe[k] ? " has-error" : ""}"><label for="f-${k}">${label}</label>${input}${fe[k] ? `<span class="err">${esc(fe[k])}</span>` : ""}</div>`;
     const main = `
-<header class="page-head"><div class="wrap"><h1>${P("จองรอบ", "Book your session")}</h1><p class="lede">${P(`${baht(C.price)} ต่อคน${pairOn() ? ` · 2 คน ${baht(C.pair_price)}` : ""} · ใช้บริการได้ ${C.duration / 60} ชั่วโมง · ชำระที่ร้าน`, `${baht(C.price)} per person${pairOn() ? ` · 2 people ${baht(C.pair_price)}` : ""} · ${C.duration / 60} hours · pay at the shop`)}</p></div></header>
+<header class="page-head"><div class="wrap"><h1>${P("จองรอบ", "Book your session")}</h1><p class="lede">${P(`${baht(C.price)} ต่อคน${pairOn() ? ` · 2 คน ${baht(C.pair_price)}` : ""} · ใช้บริการได้ ${C.duration / 60} ชั่วโมง · โอนจ่ายตอนจอง`, `${baht(C.price)} per person${pairOn() ? ` · 2 people ${baht(C.pair_price)}` : ""} · ${C.duration / 60} hours · pay when you book`)}</p></div></header>
 <section style="padding-bottom:40px"><div class="wrap">
   ${flashHTML()}${BK.err ? `<div class="alert alert--bad" role="alert">${ICON.alert}<p>${esc(BK.err)}</p></div>` : ""}
   <form class="book" id="book" novalidate>
@@ -476,13 +516,13 @@
         <div><dt>${P("เวลา", "Time")}</dt><dd>${BK.hm || "–"}</dd></div>
         <div><dt>${P("ราคา", "Price")}</dt><dd>${priceLine(BK.people)}</dd></div>
       </dl>
-      <div class="sum-total"><span>${P("ยอดชำระที่ร้าน", "Pay at the shop")}</span><b>${baht(total)}</b></div>
-      <button class="btn btn--primary btn--block submit-desktop" type="submit"${R.busy ? " disabled" : ""}>${P("ยืนยันการจอง", "Confirm booking")}</button>
-      <p class="paynote">${ICON.info}<span>${P("ยังไม่ต้องจ่ายตอนนี้ ชำระที่ร้านด้วยเงินสด โอน หรือบัตร", "Nothing to pay now. Pay at the shop by cash, transfer or card.")}</span></p>
+      <div class="sum-total"><span>${P("ยอดที่ต้องโอน", "To pay")}</span><b>${baht(total)}</b></div>
+      <button class="btn btn--primary btn--block submit-desktop" type="submit"${R.busy ? " disabled" : ""}>${P("จองและไปหน้าชำระเงิน", "Book and pay")}</button>
+      <p class="paynote">${ICON.info}<span>${P(`ขั้นต่อไปจะได้ QR พร้อมเพย์ โอนแล้วแนบสลิปภายใน ${C.hold_min || 15} นาที ระบบกันที่ไว้ให้ระหว่างนี้`, `Next you'll get a PromptPay QR. Pay and attach the slip within ${C.hold_min || 15} minutes; we hold your places meanwhile.`)}</span></p>
     </div></aside>
   </form>
 </div></section>`;
-    return pubLayout(main, { paybar: true, after: `<div class="paybar"><div class="tot"><small>${BK.people} ${P("คน", "people")}${BK.hm ? " · " + BK.hm : ""}</small><b>${baht(total)}</b></div><button class="btn btn--primary" type="submit" form="book"${R.busy ? " disabled" : ""}>${P("ยืนยันการจอง", "Confirm booking")}</button></div>` });
+    return pubLayout(main, { paybar: true, after: `<div class="paybar"><div class="tot"><small>${BK.people} ${P("คน", "people")}${BK.hm ? " · " + BK.hm : ""}</small><b>${baht(total)}</b></div><button class="btn btn--primary" type="submit" form="book"${R.busy ? " disabled" : ""}>${P("จองและชำระเงิน", "Book and pay")}</button></div>` });
   }
   function bindBook() {
     $$("[data-pp]").forEach((b) => b.addEventListener("click", () => { BK.people += Number(b.dataset.pp); BK.err = ""; render(); }));
@@ -522,20 +562,73 @@
     });
   }
 
+  // ---------- paying for an online booking: PromptPay QR, then the slip ----------
+  let holdTimer = null;
+  function payBox(b, owe, checking, lapsed) {
+    if (checking) return `<div class="paybox"><p>${ICON.ok} ${P("ทีมงานกำลังตรวจสลิป ระหว่างนี้ที่นั่งของคุณถูกกันไว้แล้ว ไม่ต้องทำอะไรเพิ่ม", "Our team is checking your slip. Your places are held; there's nothing else to do.")}</p></div>`;
+    const payload = C.promptpay ? promptPayPayload(C.promptpay, b.total) : "";
+    return `<section class="paybox" aria-labelledby="pay-h">
+    <div class="paybox-head"><h2 id="pay-h">${lapsed ? P("โอนแล้วแต่ไม่ทัน?", "Paid but ran out of time?") : P("ชำระเงิน", "Pay now")}</h2>${owe && b.hold_until ? `<p class="hold" data-hold="${esc(b.hold_until)}">${P("เหลือเวลา", "Time left")} <b data-left>–</b></p>` : ""}</div>
+    ${lapsed ? `<p class="muted">${P("ถ้าโอนไปแล้ว แนบสลิปได้เลย ถ้ารอบนี้ยังว่าง ระบบจะคืนที่ให้ทันที", "If you've already paid, attach the slip. If the session still has room, we'll put your booking back.")}</p>` : ""}
+    <div class="paybox-body">
+      ${payload ? `<figure class="qr-wrap">${qrSVG(payload)}<figcaption>${P("สแกนด้วยแอปธนาคาร ยอดขึ้นให้อัตโนมัติ", "Scan with your banking app; the amount fills in")}</figcaption></figure>` : ""}
+      <div class="pay-info">
+        <p class="pay-amt"><small>${P("ยอดโอน", "Amount")}</small><b>${baht(b.total)}</b></p>
+        ${C.promptpay ? `<p><small>${P("พร้อมเพย์", "PromptPay")}</small><span class="mono">${esc(C.promptpay)}</span></p>` : ""}
+        ${C.bank_account ? `<p><small>${esc(C.bank_name || P("บัญชีธนาคาร", "Bank account"))}</small><span class="mono">${esc(C.bank_account)}</span> <button class="btn btn--small btn--ghost" type="button" data-copy="${esc(String(C.bank_account).replace(/\D/g, ""))}">${P("คัดลอก", "Copy")}</button></p>` : ""}
+        ${C.bank_holder ? `<p><small>${P("ชื่อบัญชี", "Account name")}</small><span>${esc(C.bank_holder)}</span></p>` : ""}
+        ${!hasPayInfo() ? `<p class="note-box">${esc(P("ขออภัย ร้านกำลังตั้งค่าบัญชีรับเงิน กรุณาโทร ", "Sorry, our payment details aren't set up yet. Please call ") + C.phone)}</p>` : ""}
+        <div class="field slip-field"><label for="slip">${P("แนบสลิปการโอน", "Attach your transfer slip")}</label><input type="file" id="slip" accept="image/*"></div>
+        <button class="btn btn--primary btn--block" type="button" data-slip-send disabled>${P("ส่งสลิป", "Send slip")}</button>
+      </div>
+    </div>
+  </section>`;
+  }
+  function bindPayBox() {
+    clearInterval(holdTimer);
+    const h = $("[data-hold]");
+    if (h) {
+      const end = new Date(h.dataset.hold).getTime(), out = $("[data-left]", h);
+      const tick = () => {
+        const ms = end - Date.now();
+        if (!document.body.contains(h)) return clearInterval(holdTimer);
+        if (ms <= 0) { clearInterval(holdTimer); render(); return; }
+        const m = Math.floor(ms / 60000), sec = Math.floor((ms % 60000) / 1000);
+        out.textContent = m + ":" + String(sec).padStart(2, "0");
+        h.classList.toggle("is-late", ms < 3 * 60000);
+      };
+      tick(); holdTimer = setInterval(tick, 1000);
+    }
+    const f = $("#slip"), send = $("[data-slip-send]");
+    if (!f || !send) return;
+    f.addEventListener("change", () => { send.disabled = !f.files.length; });
+    send.addEventListener("click", async () => {
+      send.disabled = true; send.textContent = P("กำลังส่ง…", "Sending…");
+      try {
+        const data = await slipData(f.files[0]);
+        await rpc("submit_slip", { p_ref: R.ref, p_token: R.token, p_image: data });
+        R.flash = P("ส่งสลิปแล้ว ทีมงานจะตรวจและยืนยันการจองให้", "Slip sent. Our team will check it and confirm your booking."); R.flashErr = "";
+      } catch (e) { R.flashErr = errText(e); R.flash = ""; }
+      R.justBooked = false; render(); window.scrollTo(0, 0);
+    });
+  }
+
   // ---------- a customer's booking page ----------
   async function viewBooking() {
     let b = null;
     try { b = await rpc("get_booking", { p_ref: R.ref, p_token: R.token }); } catch (e) { b = null; }
     if (!b) return pubLayout(`<section class="err-page"><div class="wrap"><h1>${P("ไม่พบการจองนี้", "Booking not found")}</h1><p class="lede">${P("ลิงก์อาจไม่ครบ ลองค้นด้วยรหัสการจองและเบอร์โทร", "The link may be incomplete. Try finding it with your reference and phone.")}</p><a class="btn btn--primary" href="#my" data-go="my">${P("ค้นหาการจอง", "Find my booking")}</a></div></section>`);
     const live = b.status === "confirmed" || b.status === "checked_in";
-    const st = { confirmed: P("จองแล้ว", "Booked"), checked_in: P("เช็คอินแล้ว", "Checked in"), cancelled: P("ยกเลิกแล้ว", "Cancelled"), no_show: P("ไม่ได้มา", "Missed") }[b.status];
+    const owe = b.status === "confirmed" && b.pay === "await", checking = b.status === "confirmed" && b.pay === "review", lapsed = b.status === "cancelled" && b.pay === "expired";
+    const st = { confirmed: owe ? P("รอชำระเงิน", "Awaiting payment") : checking ? P("รอตรวจสลิป", "Checking your slip") : P("จองแล้ว", "Booked"), checked_in: P("เช็คอินแล้ว", "Checked in"), cancelled: P("ยกเลิกแล้ว", "Cancelled"), no_show: P("ไม่ได้มา", "Missed") }[b.status];
     const link = location.origin + location.pathname + "#booking/" + b.ref + "/" + R.token;
     const moveDays = R.moveOpen ? await (async () => { try { return await rpc("availability", { p_from: today(), p_days: Math.min(Number(C.horizon_days) + 1, 42), p_people: b.people }); } catch (e) { return []; } })() : [];
     const md = R.moveDay && moveDays.find((d) => d.day === R.moveDay);
     return pubLayout(`<section class="section" style="padding-top:clamp(28px,5vw,56px)"><div class="wrap">
-  ${R.justBooked ? `<div class="alert alert--ok" role="status">${ICON.ok}<p>${P("จองเรียบร้อยแล้ว ดูรายละเอียดและตัวเลือกเลื่อนหรือยกเลิกได้ที่", "You're booked. View booking details and available rescheduling or cancellation options in")} <a href="#my" data-go="my">${P("การจองของฉัน", "My bookings")}</a>${P(" (เข้าสู่ระบบด้วยอีเมลเดิม)", " (sign in with the same email)")}</p></div>` : ""}${flashHTML()}
+  ${R.justBooked && !owe ? `<div class="alert alert--ok" role="status">${ICON.ok}<p>${P("จองเรียบร้อยแล้ว ดูรายละเอียดและตัวเลือกเลื่อนหรือยกเลิกได้ที่", "You're booked. View booking details and available rescheduling or cancellation options in")} <a href="#my" data-go="my">${P("การจองของฉัน", "My bookings")}</a>${P(" (เข้าสู่ระบบด้วยอีเมลเดิม)", " (sign in with the same email)")}</p></div>` : ""}${flashHTML()}
+  ${owe || checking || lapsed ? payBox(b, owe, checking, lapsed) : ""}
   <article class="ticket">
-    <div class="ticket-top"><p class="status"><span class="badge ${live ? "badge--ok" : "badge--bad"}">${st}</span></p><h1>${live ? P("แล้วพบกันที่สวน", "See you in the garden") : st}</h1>${live ? `<p class="muted">${P("มาก่อนเวลา 10–15 นาที และเตรียมชุดที่เปียกได้", "Please arrive 10–15 minutes early with clothes that can get wet.")}</p>` : ""}</div>
+    <div class="ticket-top"><p class="status"><span class="badge ${live && !owe && !checking ? "badge--ok" : live ? "badge--warn" : "badge--bad"}">${st}</span></p><h1>${owe ? P("กันที่ไว้ให้แล้ว รอชำระเงิน", "Places held. Please pay to confirm") : checking ? P("ได้รับสลิปแล้ว", "We've got your slip") : live ? P("แล้วพบกันที่สวน", "See you in the garden") : lapsed ? P("หมดเวลาชำระเงิน", "Payment time ran out") : st}</h1>${live && !owe ? `<p class="muted">${P("มาก่อนเวลา 10–15 นาที และเตรียมชุดที่เปียกได้", "Please arrive 10–15 minutes early with clothes that can get wet.")}</p>` : ""}</div>
     <div class="ticket-body">
       <div><p class="muted" style="margin:0">${P("รหัสการจอง", "Booking reference")}</p><p class="ticket-ref" style="margin:0">${esc(b.ref)}</p></div>
       <dl class="kv">
@@ -543,7 +636,7 @@
         <dt>${P("เวลา", "Time")}</dt><dd>${esc(b.hm)}–${esc(b.end)}</dd>
         <dt>${P("จำนวน", "People")}</dt><dd>${b.people}</dd>
         <dt>${P("ชื่อ", "Name")}</dt><dd>${esc(b.name)}</dd>
-        <dt>${P("ยอด", "Total")}</dt><dd>${baht(b.total)} ${b.pay === "paid" ? P("(ชำระแล้ว)", "(paid)") : b.pay === "due" ? P("(ชำระที่ร้าน)", "(pay at the shop)") : ""}</dd>
+        <dt>${P("ยอด", "Total")}</dt><dd>${baht(b.total)} ${b.pay === "paid" ? P("(ชำระแล้ว)", "(paid)") : b.pay === "due" ? P("(ชำระที่ร้าน)", "(pay at the shop)") : b.pay === "await" ? P("(รอโอน)", "(not paid yet)") : b.pay === "review" ? P("(รอตรวจสลิป)", "(slip being checked)") : ""}</dd>
       </dl>
       ${live ? `<div class="field"><label for="my-link">${P("เก็บลิงก์นี้ไว้ดูการจอง", "Save your booking link")}</label><div class="code-row"><input id="my-link" type="text" readonly value="${esc(link)}"><button class="btn btn--small" type="button" data-copy="${esc(link)}">${P("คัดลอก", "Copy")}</button></div></div>` : ""}
     </div>
@@ -555,12 +648,14 @@
       <button class="btn btn--primary mt-m" type="button" data-move-go${R.moveHm ? "" : " disabled"}>${P("ยืนยันเวลาใหม่", "Confirm new time")}</button>` : ""}
       <p class="muted"><small>${P(`เลื่อนได้ ${C.max_moves} ครั้ง ก่อนเวลาเริ่ม ${C.cancel_hours} ชั่วโมง`, `Reschedule up to ${C.max_moves} times, at least ${C.cancel_hours} hours before the start.`)}</small></p></div></details>` : ""}
     ${b.can_cancel ? `<details><summary>${P("ยกเลิกการจอง", "Cancel booking")}</summary><div class="inner"><p>${P("ยกเลิกแล้วที่นั่งจะเปิดให้คนอื่นจองทันที", "Your places will be released for others straight away.")}</p><button class="btn btn--danger" type="button" data-cancel data-confirm="${P("กดอีกครั้งเพื่อยืนยันการยกเลิก", "Tap again to confirm")}">${P("ยกเลิกการจองนี้", "Cancel this booking")}</button></div></details>` : ""}
+    ${!b.can_cancel && (b.pay === "paid" || b.pay === "review") ? `<p class="muted small">${esc(P("ชำระเงินแล้ว ถ้าต้องการยกเลิก กรุณาโทร ", "Already paid. To cancel, please call ") + C.phone)}</p>` : ""}
     ${!b.can_move && !b.can_cancel ? `<p class="note-box">${esc(P("เลยกำหนดเปลี่ยนแปลงออนไลน์แล้ว กรุณาโทร ", "It's past the online change deadline. Please call ") + C.phone)}</p>` : ""}
   </div>` : ""}
   <p class="mt-m"><a class="btn" href="#book" data-go="book">${P("จองรอบอื่น", "Book another session")}</a></p>
 </div></section>`);
   }
   function bindBooking() {
+    bindPayBox();
     const tg = $("[data-move-toggle]");
     if (tg) tg.addEventListener("toggle", () => { if (tg.open && !R.moveOpen) { R.moveOpen = true; render(); } });
     $$("[data-mday]").forEach((b) => b.addEventListener("click", () => { R.moveDay = b.dataset.mday; R.moveHm = ""; render(); }));
@@ -645,7 +740,8 @@
         ["อีเมลและรหัสผ่านสำหรับเข้าสู่ระบบ รหัสผ่านถูกเข้ารหัสไว้ ทีมงานมองไม่เห็น", "Your email and password for signing in. Passwords are encrypted; our team cannot see them."],
         ["ชื่อ นามสกุล และเบอร์มือถือ", "Your name and mobile number."],
         ["วันเกิดและเพศ เฉพาะเมื่อคุณเลือกกรอก", "Date of birth and gender, only if you choose to give them."],
-        ["ประวัติการจอง เช่น วัน เวลา จำนวนคน หมายเหตุที่คุณแจ้ง และการชำระเงินที่ร้าน", "Your bookings: day, time, number of people, any note you leave and payment at the shop."],
+        ["ประวัติการจอง เช่น วัน เวลา จำนวนคน หมายเหตุที่คุณแจ้ง และการชำระเงิน", "Your bookings: day, time, number of people, any note you leave and your payments."],
+        ["รูปสลิปการโอนที่คุณแนบ ใช้ตรวจยอดและยืนยันการจอง", "The transfer slips you attach, used to check payment and confirm your booking."],
         ["ข้อมูลทางเทคนิคที่ผู้ให้บริการเว็บบันทึกอัตโนมัติเพื่อความปลอดภัย เช่น ที่อยู่ IP และประเภทเบราว์เซอร์", "Technical details our web providers record automatically for security, such as IP address and browser type."]]],
       ["เราใช้ข้อมูลเพื่อ", "How we use it", [
         ["รับจอง ยืนยัน เลื่อน หรือยกเลิกการจอง และติดต่อคุณเรื่องการจอง", "To take, confirm, move or cancel your bookings and contact you about them."],
@@ -675,9 +771,12 @@
         ["กรุณามาถึงก่อนเวลา 10–15 นาที ถ้ามาสาย เวลาใช้บริการยังสิ้นสุดตามรอบเดิม", "Please arrive 10–15 minutes early. If you are late, your session still ends at the original time."]]],
       ["ราคาและการชำระเงิน", "Price and payment", [
         [`ราคา ${baht(C.price)} ต่อคน${pairOn() ? ` และโปรมา 2 คน ${baht(C.pair_price)}` : ""} ตามที่แสดงตอนจอง`, `${baht(C.price)} per person${pairOn() ? `, or ${baht(C.pair_price)} for two people` : ""}, as shown when you book.`],
-        ["ชำระที่ร้านเมื่อมาถึง รับเงินสด โอน และบัตร", "Pay at the shop when you arrive, by cash, transfer or card."]]],
+        [`ชำระเต็มจำนวนตอนจองผ่านพร้อมเพย์หรือโอนเข้าบัญชีร้าน แล้วแนบสลิปภายใน ${C.hold_min || 15} นาที ระหว่างนี้ระบบกันที่ไว้ให้`, `Pay in full when you book, by PromptPay or bank transfer, and attach the slip within ${C.hold_min || 15} minutes. We hold your places meanwhile.`],
+        ["ถ้าไม่ได้แนบสลิปในเวลาที่กำหนด การจองจะถูกยกเลิกและที่นั่งจะเปิดให้คนอื่นจอง", "If no slip arrives in time, the booking is cancelled and the places are released."],
+        ["การจองยืนยันเมื่อทีมงานตรวจสลิปแล้ว", "Your booking is confirmed once our team has checked the slip."]]],
       ["เลื่อนและยกเลิก", "Moving and cancelling", [
-        [`เลื่อนหรือยกเลิกได้เองที่หน้า "การจองของฉัน" ก่อนเวลาเริ่มอย่างน้อย ${hrs} ชั่วโมง (เลื่อนได้ ${moves} ครั้งต่อการจอง)`, `Move or cancel yourself under "My bookings" up to ${hrs} hours before your session (up to ${moves} move${moves > 1 ? "s" : ""} per booking).`],
+        [`เลื่อนได้เองที่หน้า "การจองของฉัน" ก่อนเวลาเริ่มอย่างน้อย ${hrs} ชั่วโมง (เลื่อนได้ ${moves} ครั้งต่อการจอง)`, `Move your booking yourself under "My bookings" up to ${hrs} hours before your session (up to ${moves} move${moves > 1 ? "s" : ""} per booking).`],
+        [`ถ้าชำระเงินแล้วต้องการยกเลิก กรุณาโทร ${esc(C.phone)}`, `To cancel after paying, please call ${esc(C.phone)}.`],
         [`หลังจากนั้น กรุณาโทร ${esc(C.phone)} ทีมงานจะช่วยดูให้ตามรอบที่ยังว่าง`, `After that, please call ${esc(C.phone)} and our team will help if there is space.`],
         ["ร้านอาจปิดรอบหรือปิดร้านในบางกรณี เช่น สภาพอากาศหรือการซ่อมบำรุง ถ้ากระทบการจองของคุณ ทีมงานจะติดต่อเพื่อเลื่อนให้", "We may close a session or the shop, for example for weather or maintenance. If this affects your booking, our team will contact you to move it."]]],
       ["สุขภาพและความปลอดภัย", "Health and safety", [
@@ -700,7 +799,7 @@
     return pubLayout(`<header class="page-head"><div class="wrap"><h1>${P("การจองของฉัน", "My bookings")}</h1></div></header>
 <section class="section" style="padding-top:8px"><div class="wrap">${flashHTML()}
   ${cust && R.custRecovery ? newPasswordPanel() : ""}
-  ${mine ? `${signedInLine()}<p class="small"><a href="#profile" data-go="profile">${P("แก้ไขข้อมูลสมาชิก", "Edit your profile")}</a></p>${mine.bookings.length ? `<div class="cards">${mine.bookings.map((b) => `<a class="bcard" href="#booking/${esc(b.ref)}/${esc(b.token)}" data-open="${esc(b.ref)}|${esc(b.token)}"><span class="date-badge"><b>${Number(b.day.slice(8))}</b><span>${esc(mon(b.day))}</span></span><span class="info"><b>${esc(b.hm)} · ${b.people} ${P("คน", "people")}</b><span>${esc(b.ref)} · ${esc(dShort(b.day))}</span></span><span class="badge ${b.status === "confirmed" || b.status === "checked_in" ? "badge--ok" : "badge--bad"}">${st[b.status]}</span></a>`).join("")}</div>` : `<p class="muted">${P("ยังไม่มีการจอง", "No bookings yet.")}</p>`}<p class="mt-m"><a class="btn btn--primary" href="#book" data-go="book">${P("จองรอบ", "Book a session")}</a></p>`
+  ${mine ? `${signedInLine()}<p class="small"><a href="#profile" data-go="profile">${P("แก้ไขข้อมูลสมาชิก", "Edit your profile")}</a></p>${mine.bookings.length ? `<div class="cards">${mine.bookings.map((b) => `<a class="bcard" href="#booking/${esc(b.ref)}/${esc(b.token)}" data-open="${esc(b.ref)}|${esc(b.token)}"><span class="date-badge"><b>${Number(b.day.slice(8))}</b><span>${esc(mon(b.day))}</span></span><span class="info"><b>${esc(b.hm)} · ${b.people} ${P("คน", "people")}</b><span>${esc(b.ref)} · ${esc(dShort(b.day))}</span></span>${b.status === "confirmed" && b.pay === "await" ? `<span class="badge badge--warn">${P("รอชำระ", "Pay now")}</span>` : b.status === "confirmed" && b.pay === "review" ? `<span class="badge badge--warn">${P("รอตรวจสลิป", "Checking slip")}</span>` : `<span class="badge ${b.status === "confirmed" || b.status === "checked_in" ? "badge--ok" : "badge--bad"}">${b.pay === "expired" ? P("หมดเวลาชำระ", "Not paid in time") : st[b.status]}</span>`}</a>`).join("")}</div>` : `<p class="muted">${P("ยังไม่มีการจอง", "No bookings yet.")}</p>`}<p class="mt-m"><a class="btn btn--primary" href="#book" data-go="book">${P("จองรอบ", "Book a session")}</a></p>`
   : `<div class="panel" style="max-width:520px"><h2 style="font-size:var(--step-2);margin-bottom:12px">${P("เข้าสู่ระบบเพื่อดูการจอง", "Sign in to see your bookings")}</h2>${loginPanel("")}</div>`}
 </div></section>`);
   }
@@ -710,7 +809,8 @@
   // ================= back office =================
   const ROLE = { owner: "เจ้าของ", manager: "ผู้จัดการ", staff: "แอดมินจองคิว" };
   const ST = { confirmed: ["จองแล้ว", "badge--ok"], checked_in: ["เช็คอินแล้ว", "badge--ok"], cancelled: ["ยกเลิก", "badge--bad"], no_show: ["ไม่มา", "badge--bad"], waiting: ["รอนัดวันใหม่", "badge--warn"] };
-  const PAY = { due: ["รอเก็บเงิน", "badge--warn"], paid: ["ชำระแล้ว", "badge--ok"], none: ["ไม่มียอด", "badge--muted"] };
+  const PAY = { due: ["รอเก็บเงิน", "badge--warn"], await: ["รอโอน", "badge--warn"], review: ["รอตรวจสลิป", "badge--warn"], expired: ["หมดเวลาชำระ", "badge--muted"], paid: ["ชำระแล้ว", "badge--ok"], none: ["ไม่มียอด", "badge--muted"] };
+  const owes = (b) => b.pay === "due" || b.pay === "await" || b.pay === "review";
   const METHOD = { cash: "เงินสด", transfer: "โอน", card: "บัตร", qr: "QR" };
   const METHOD_ALL = Object.assign({ package: "คูปองแพ็กเกจ" }, METHOD);
   const CH = { web: "เว็บ", walk_in: "Walk-in", phone: "โทร", line: "LINE" };
@@ -796,8 +896,9 @@
     ${kpi("เช็คอินแล้ว", t.checked, null, n, `จาก ${t.guests} คน`)}
     ${kpi("ใช้ที่นั่งวันนี้", occ(t), occ(lw), (x) => x + "%", `${t.guests} จาก ${t.capacity} ที่`)}
     ${kpi("การจองใหม่วันนี้", t.created, lw.created, n, "นับตามวันที่กดจอง")}
-    ${kpi("รอเก็บเงินที่ร้าน (วันนี้)", ov.due_today, null, n, "การจอง")}
+    ${kpi("ยังไม่ชำระ (วันนี้)", ov.due_today, null, n, "การจอง")}
   </div>
+  ${ov.slips ? `<div class="alert alert--warn" role="status" style="margin-top:14px"><p>มีสลิปรอตรวจ <b>${ov.slips}</b> รายการ · <a href="#queue" data-go="queue" data-qtabgo="slips">ไปตรวจสลิป</a></p></div>` : ""}
   <div class="grid grid-21" style="margin-top:14px">
     <section class="card"><div class="card-head"><h2>รอบของวันนี้</h2></div>${sessionsTable(day)}</section>
     <section class="card"><h2>รับเงิน 14 วันล่าสุด</h2><ul class="hb">${days.slice().reverse().map((x) => `<li><span class="hb-label">${esc(dShort(x.day, "th-TH"))}</span><span class="hb-track"><i style="width:${((x.revenue / max) * 100).toFixed(1)}%"></i></span><span class="hb-val">${baht(x.revenue)}</span></li>`).join("")}</ul></section>
@@ -813,7 +914,7 @@
     const d = R.aday || today();
     const day = await rpc("staff_day", { p_day: d }, true);
     const g = day.slots.reduce((a, s) => a + s.used, 0), cap = day.slots.filter((s) => !s.blocked).reduce((a, s) => a + s.capacity, 0);
-    const row = (b) => `<li><a class="name" href="#abooking" data-aref="${esc(b.ref)}">${esc(b.name)}</a><span>${b.people} คน</span>${badge(ST, b.status)} ${badge(PAY, b.pay)}<span class="muted grow">${esc(fmtPhone(b.phone))} · ${CH[b.channel] || b.channel}${b.note ? " · “" + esc(b.note) + "”" : ""}</span>${b.status === "confirmed" ? `<button class="btn btn--small btn--primary" type="button" data-checkin="${esc(b.ref)}" data-due="${b.pay === "due" ? 1 : 0}" data-total="${b.total}">เช็คอิน</button>` : ""}</li>`;
+    const row = (b) => `<li><a class="name" href="#abooking" data-aref="${esc(b.ref)}">${esc(b.name)}</a><span>${b.people} คน</span>${badge(ST, b.status)} ${badge(PAY, b.pay)}<span class="muted grow">${esc(fmtPhone(b.phone))} · ${CH[b.channel] || b.channel}${b.note ? " · “" + esc(b.note) + "”" : ""}</span>${b.status === "confirmed" ? `<button class="btn btn--small btn--primary" type="button" data-checkin="${esc(b.ref)}" data-due="${owes(b) ? 1 : 0}" data-total="${b.total}">เช็คอิน</button>` : ""}</li>`;
     return admLayout(`<div class="topline"><h1>ตารางรอบ</h1></div>
   <div class="filters"><div class="day-nav"><button class="btn" type="button" data-aday="${addDays(d, -1)}" aria-label="วันก่อน">‹</button><input type="date" id="adate" value="${d}" aria-label="วันที่"><button class="btn" type="button" data-aday="${addDays(d, 1)}" aria-label="วันถัดไป">›</button><button class="btn" type="button" data-aday="${today()}">วันนี้</button></div></div>
   <p class="muted">${esc(dLong(d, "th-TH"))} · ลูกค้า ${g} คน · ที่เปิดขาย ${cap}${day.closed ? " · <b>ปิดร้านวันนี้</b>" : ""}${day.holiday != null ? " · <b>วันหยุดนักขัตฯ</b> " + esc(day.holiday) : ""}</p>
@@ -852,6 +953,7 @@
     if (!b) return admLayout(`<div class="card"><h1>ไม่พบการจอง ${esc(R.aref)}</h1></div>`);
     let mslots = [];
     if (R.amove) { try { const a = await rpc("staff_day", { p_day: R.amoveDay || b.day }, true); mslots = a.slots; } catch (e) { mslots = []; } }
+    let slip = null; if (b.slip_at) { try { slip = await rpc("staff_slip", { p_ref: b.ref }, true); } catch (e) { slip = null; } }
     return admLayout(`<div class="topline"><h1>${esc(b.name)} <span class="mono">${esc(b.ref)}</span></h1>${badge(ST, b.status)} ${badge(PAY, b.pay)}</div>
   <div class="grid grid-21"><div>
     <section class="card"><h2>รายละเอียด</h2><dl class="kv">
@@ -862,10 +964,11 @@
       <dt>ช่องทาง</dt><dd>${CH[b.channel] || esc(b.channel)} · จองเมื่อ ${esc(dt(b.created_at))}${b.moves ? ` · ลูกค้าเลื่อนแล้ว ${b.moves} ครั้ง` : ""}</dd>
       ${b.note ? `<dt>ลูกค้าแจ้ง</dt><dd>“${esc(b.note)}”</dd>` : ""}
     </dl></section>
+    ${slip ? slipCard(b, slip) : ""}
     <section class="card"><h2>จัดการ</h2>
-      ${b.status === "confirmed" ? `<div class="btn-row">${b.pay === "due" ? Object.entries(METHOD).map(([k, l]) => `<button class="btn btn--primary" type="button" data-bci="${k}">เช็คอิน + รับ${l}</button>`).join("") + `<button class="btn" type="button" data-bci="">เช็คอิน (ยังไม่รับเงิน)</button>` : `<button class="btn btn--primary" type="button" data-bci="">เช็คอิน</button>`}</div>
+      ${b.status === "confirmed" ? `<div class="btn-row">${owes(b) ? Object.entries(METHOD).map(([k, l]) => `<button class="btn btn--primary" type="button" data-bci="${k}">เช็คอิน + รับ${l}</button>`).join("") + `<button class="btn" type="button" data-bci="">เช็คอิน (ยังไม่รับเงิน)</button>` : `<button class="btn btn--primary" type="button" data-bci="">เช็คอิน</button>`}</div>
         <div class="btn-row" style="margin-top:10px"><button class="btn btn--small" type="button" data-bst="no_show" data-confirm="กดอีกครั้ง: บันทึกว่าไม่มา">บันทึกว่าไม่มา</button><button class="btn btn--small btn--danger" type="button" data-bst="cancelled" data-confirm="กดอีกครั้งเพื่อยกเลิก">ยกเลิกการจอง</button><button class="btn btn--small" type="button" data-amove>${R.amove ? "ปิดการย้ายรอบ" : "ย้ายรอบ"}</button></div>` : ""}
-      ${b.status === "checked_in" && b.pay === "due" ? `<div class="btn-row">${Object.entries(METHOD).map(([k, l]) => `<button class="btn btn--primary" type="button" data-bpay="${k}">รับ${l}</button>`).join("")}</div>` : ""}
+      ${b.status === "checked_in" && owes(b) ? `<div class="btn-row">${Object.entries(METHOD).map(([k, l]) => `<button class="btn btn--primary" type="button" data-bpay="${k}">รับ${l}</button>`).join("")}</div>` : ""}
       ${b.status === "checked_in" || b.status === "no_show" ? `<p style="margin-top:10px"><button class="btn btn--small" type="button" data-bst="confirmed" data-confirm="กดอีกครั้งเพื่อย้อนสถานะ">ย้อนเป็น “จองแล้ว”</button></p>` : ""}
       ${R.amove ? `<div class="card" style="margin-top:12px"><div class="field"><label for="amd">ย้ายไปวันที่</label><input type="date" id="amd" value="${esc(R.amoveDay || b.day)}"></div><div class="btn-row" style="margin:10px 0">${mslots.map((s) => `<button type="button" class="btn btn--small${R.amoveHm === s.hm ? " btn--primary" : ""}" data-amhm="${s.hm}">${s.hm} · ว่าง ${Math.max(0, s.capacity - s.used)}/${s.capacity}</button>`).join("") || '<span class="muted">วันนั้นไม่มีรอบ</span>'}</div>${ME.role !== "staff" ? '<label class="check"><input type="checkbox" id="amover"> อนุญาตเกินความจุ</label>' : ""}<p><button class="btn btn--primary" type="button" data-amgo${R.amoveHm ? "" : " disabled"}>ย้ายไปรอบที่เลือก</button></p></div>` : ""}
       <div class="field" style="margin-top:16px"><label for="snote">โน้ตทีมงาน (ลูกค้าไม่เห็น)</label><textarea id="snote" maxlength="1000">${esc(b.staff_note || "")}</textarea></div><button class="btn btn--small" type="button" data-snote style="margin-top:8px">บันทึกโน้ต</button>
@@ -873,8 +976,19 @@
     <section class="card"><h2>ประวัติ</h2>${b.history.length ? `<ul class="timeline">${b.history.map((h) => `<li><time>${esc(dt(h.at))}</time><span>${esc(h.action)} <small class="muted">${esc(h.who)}</small></span></li>`).join("")}</ul>` : '<p class="muted">ยังไม่มี</p>'}</section>
   </div>`);
   }
+  // the customer's slip, with the button that confirms the transfer
+  function slipCard(b, slip) {
+    return `<section class="card slip-card"><h2>สลิปโอนเงิน</h2><p class="muted small">ส่งเมื่อ ${esc(dt(slip.at))} · ยอดที่ต้องได้ <b>${baht(b.total)}</b></p>
+      <a href="${slip.data}" target="_blank" rel="noopener" class="slip-img"><img src="${slip.data}" alt="สลิปโอนเงินของ ${esc(b.name)}"></a>
+      ${b.pay === "review" ? `<div class="btn-row" style="margin-top:10px"><button class="btn btn--primary" type="button" data-slipok="${esc(b.ref)}">ยอดถูกต้อง ยืนยันรับโอน</button><button class="btn btn--small btn--danger" type="button" data-slipno="${esc(b.ref)}" data-confirm="กดอีกครั้ง: ยกเลิกการจองนี้">สลิปไม่ถูกต้อง ยกเลิกคิว</button></div><p class="muted small">เช็คในแอปธนาคารว่าเงินเข้าจริงก่อนกดยืนยัน</p>` : ""}</section>`;
+  }
+  function bindSlipButtons() {
+    $$("[data-slipok]").forEach((b) => b.addEventListener("click", () => act(async () => { await rpc("staff_take_payment", { p_ref: b.dataset.slipok, p_method: "transfer" }, true); R.qSlip = ""; return "ยืนยันรับโอนแล้ว การจองนี้ชำระแล้ว"; })));
+    $$("[data-slipno]").forEach((b) => b.addEventListener("click", () => act(async () => { await rpc("staff_set_status", { p_ref: b.dataset.slipno, p_status: "cancelled" }, true); R.qSlip = ""; return "ยกเลิกการจองแล้ว ถ้าลูกค้าโอนมาจริง อย่าลืมคืนเงิน"; })));
+  }
   function bindAdminBooking() {
     const ref = R.aref;
+    bindSlipButtons();
     $$("[data-bci]").forEach((b) => b.addEventListener("click", () => act(async () => { await rpc("staff_checkin", { p_ref: ref, p_method: b.dataset.bci }, true); return "เช็คอินแล้ว"; })));
     $$("[data-bpay]").forEach((b) => b.addEventListener("click", () => act(async () => { await rpc("staff_take_payment", { p_ref: ref, p_method: b.dataset.bpay }, true); return "บันทึกรับเงินแล้ว"; })));
     $$("[data-bst]").forEach((b) => b.addEventListener("click", () => act(async () => { await rpc("staff_set_status", { p_ref: ref, p_status: b.dataset.bst }, true); return "อัปเดตสถานะแล้ว"; })));
@@ -931,6 +1045,9 @@
     <fieldset style="margin-top:12px"><legend>หยุดประจำสัปดาห์</legend><div class="checks">${[1, 2, 3, 4, 5, 6, 0].map((d) => `<label class="check"><input type="checkbox" id="s-c${d}" data-closed="${d}"${(cfg.closed || []).includes(d) ? " checked" : ""}${can ? "" : " disabled"}> ${thDays[d]}</label>`).join("")}</div></fieldset>
     <h2 style="margin-top:18px">เงื่อนไขการจอง</h2>
     <div class="form-grid">${inp("s-lead", "ปิดจองออนไลน์ก่อนรอบ (นาที)", cfg.lead_min, "number")}${inp("s-hor", "เปิดให้จองล่วงหน้า (วัน)", cfg.horizon_days, "number")}${inp("s-cut", "ลูกค้ายกเลิก/เลื่อนเองได้ก่อนรอบ (ชม.)", cfg.cancel_hours, "number")}${inp("s-mm", "ลูกค้าเลื่อนได้ (ครั้ง)", cfg.max_moves, "number")}</div>
+    <h2 style="margin-top:18px">รับเงินออนไลน์</h2>
+    <p class="muted small">ลูกค้าจะเห็น QR พร้อมเพย์พร้อมยอดเงิน และบัญชีนี้ตอนจอง ใส่อย่างน้อยพร้อมเพย์หรือเลขบัญชี</p>
+    <div class="form-grid">${inp("s-pp", "พร้อมเพย์ (เบอร์มือถือหรือเลขผู้เสียภาษี)", cfg.promptpay || "", "text", ' inputmode="numeric"')}${inp("s-bank", "ธนาคาร", cfg.bank_name || "")}${inp("s-acct", "เลขบัญชี", cfg.bank_account || "", "text", ' inputmode="numeric"')}${inp("s-holder", "ชื่อบัญชี", cfg.bank_holder || "")}${inp("s-hold", "กันที่ให้ลูกค้าโอน (นาที)", cfg.hold_min || 15, "number", ' min="5" max="1440"')}</div>
     <h2 style="margin-top:18px">ข้อมูลร้าน</h2>
     <div class="form-grid">${inp("s-phone", "เบอร์โทรร้าน", cfg.phone)}${inp("s-line", "LINE ID", cfg.line)}${inp("s-addr", "ที่อยู่ (ไทย)", cfg.address_th)}${inp("s-addren", "ที่อยู่ (อังกฤษ)", cfg.address_en)}${inp("s-map", "ลิงก์ Google Maps", cfg.map_url)}</div>
     ${can ? '<p style="margin-top:14px"><button class="btn btn--primary" type="submit">บันทึก</button></p>' : ""}
@@ -944,7 +1061,7 @@
       if (!times.every((x) => /^([01]\d|2[0-3]):[0-5]\d$/.test(x))) { R.flashErr = "รูปแบบเวลาไม่ถูกต้อง ใช้ HH:MM เช่น 09:00"; render(); return; }
       const num = (id) => Number($(id).value);
       act(async () => {
-        C = Object.assign(C, await rpc("staff_save_settings", { p: { price: num("#s-price"), pair_price: num("#s-pair"), capacity: num("#s-cap"), capacity_weekend: num("#s-capw"), duration: num("#s-dur"), max_group: num("#s-maxg"), times: Array.from(new Set(times)).sort(), closed: $$("[data-closed]").filter((c) => c.checked).map((c) => Number(c.dataset.closed)), lead_min: num("#s-lead"), horizon_days: num("#s-hor"), cancel_hours: num("#s-cut"), max_moves: num("#s-mm"), phone: $("#s-phone").value.trim(), line: $("#s-line").value.trim(), address_th: $("#s-addr").value.trim(), address_en: $("#s-addren").value.trim(), map_url: $("#s-map").value.trim() } }, true));
+        C = Object.assign(C, await rpc("staff_save_settings", { p: { price: num("#s-price"), pair_price: num("#s-pair"), capacity: num("#s-cap"), capacity_weekend: num("#s-capw"), duration: num("#s-dur"), max_group: num("#s-maxg"), times: Array.from(new Set(times)).sort(), closed: $$("[data-closed]").filter((c) => c.checked).map((c) => Number(c.dataset.closed)), lead_min: num("#s-lead"), horizon_days: num("#s-hor"), cancel_hours: num("#s-cut"), max_moves: num("#s-mm"), phone: $("#s-phone").value.trim(), line: $("#s-line").value.trim(), address_th: $("#s-addr").value.trim(), address_en: $("#s-addren").value.trim(), map_url: $("#s-map").value.trim(), promptpay: $("#s-pp").value.trim(), bank_name: $("#s-bank").value.trim(), bank_account: $("#s-acct").value.trim(), bank_holder: $("#s-holder").value.trim(), hold_min: num("#s-hold") } }, true));
         return "บันทึกแล้ว หน้าเว็บลูกค้าใช้ค่าใหม่ทันที";
       });
     });
@@ -973,7 +1090,8 @@
 
   // ================= queue page: a separate, simple page for admins who take bookings for customers =================
   const PT = { online: ["ชำระออนไลน์", "online"], venue: ["ชำระหน้าร้าน", "venue"], package: ["คูปองแพ็กเกจ", "package"], free: ["ไม่มีค่าใช้จ่าย (รีวิว/Influ)", "free"] };
-  const payType = (b) => (b.pay === "none" ? "free" : b.pay === "due" ? "venue" : b.method === "package" || b.package ? "package" : "online");
+  const payType = (b) => (b.pay === "none" ? "free" : b.pay === "due" ? "venue" : b.pay === "await" ? "await" : b.pay === "review" ? "review" : b.method === "package" || b.package ? "package" : "online");
+  const PT_SHOW = Object.assign({ await: ["รอลูกค้าโอน", "await"], review: ["รอตรวจสลิป", "review"] }, PT);
   const PKGS = ["Happy Duo", "Happy Duo+1", "Happy Duo+2", "Happy Duo*2", "Happy Group", "Member 1"];
   const cleanNote = (n) => (n || "").replace(/^นำเข้าจาก Google Sheet:?\s*/, "").replace(/\s*\(จ่ายแล้วก่อนย้ายระบบ\)$/, "");
   function qHeader() {
@@ -988,11 +1106,12 @@
     const note = [b.package ? b.package : "", cleanNote(b.staff_note), b.note ? "ลูกค้าแจ้ง: " + b.note : ""].filter(Boolean).join(" · ");
     const open = R.qOpen === b.ref;
     return `<li class="q-row${b.status === "checked_in" ? " is-in" : ""}${b.status === "no_show" ? " is-off" : ""}">
-      <span class="dot dot--${PT[t][1]}" title="${PT[t][0]}"></span>
+      <span class="dot dot--${PT_SHOW[t][1]}" title="${PT_SHOW[t][0]}"></span>
       <div class="q-who"><b>${esc(b.name)}</b> <span class="muted">${b.people} คน${b.phone ? " · " + esc(fmtPhone(b.phone)) : ""}${o.when ? " · " + esc(dShort(b.day, "th-TH")) + " " + esc(b.hm) : ""}</span>${note ? `<span class="q-note">${esc(note)}</span>` : ""}</div>
-      <span class="q-tags">${b.status === "checked_in" ? '<span class="badge badge--ok">มาแล้ว</span>' : b.status === "no_show" ? '<span class="badge badge--bad">ไม่มา</span>' : b.status === "cancelled" ? '<span class="badge badge--bad">ยกเลิก</span>' : b.status === "waiting" ? '<span class="badge badge--warn">รอนัดวันใหม่</span>' : ""}${t === "venue" && b.status !== "cancelled" ? `<span class="badge badge--warn">เก็บ ${baht(b.total)}</span>` : ""}</span>
-      <span class="q-act">${o.waiting ? `<button class="btn btn--small btn--primary" type="button" data-qre="${esc(b.ref)}">นัดวันใหม่</button>` : b.status === "confirmed" && !o.when ? `<button class="btn btn--small btn--primary" type="button" data-qin="${esc(b.ref)}" data-due="${t === "venue" ? 1 : 0}">เช็คอิน</button>` : ""}${b.status !== "cancelled" ? `<button class="btn btn--small btn--ghost" type="button" data-qmore="${esc(b.ref)}" aria-expanded="${open}">⋯</button>` : ""}</span>
+      <span class="q-tags">${b.status === "checked_in" ? '<span class="badge badge--ok">มาแล้ว</span>' : b.status === "no_show" ? '<span class="badge badge--bad">ไม่มา</span>' : b.status === "cancelled" ? '<span class="badge badge--bad">ยกเลิก</span>' : b.status === "waiting" ? '<span class="badge badge--warn">รอนัดวันใหม่</span>' : ""}${t === "venue" && b.status !== "cancelled" ? `<span class="badge badge--warn">เก็บ ${baht(b.total)}</span>` : ""}${t === "await" && b.status !== "cancelled" ? `<span class="badge badge--muted">รอโอน ถึง ${esc(new Date(b.hold_until).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok" }))}</span>` : ""}${t === "review" && b.status !== "cancelled" ? `<button class="badge badge--warn badge-btn" type="button" data-qslip="${esc(b.ref)}">ดูสลิป ${baht(b.total)}</button>` : ""}</span>
+      <span class="q-act">${o.waiting ? `<button class="btn btn--small btn--primary" type="button" data-qre="${esc(b.ref)}">นัดวันใหม่</button>` : b.status === "confirmed" && !o.when ? `<button class="btn btn--small btn--primary" type="button" data-qin="${esc(b.ref)}" data-due="${owes(b) ? 1 : 0}">เช็คอิน</button>` : ""}${b.status !== "cancelled" ? `<button class="btn btn--small btn--ghost" type="button" data-qmore="${esc(b.ref)}" aria-expanded="${open}">⋯</button>` : ""}</span>
       ${R.qCheckin === b.ref ? `<div class="q-panel">รับเงิน ${baht(b.total)} ด้วย ${Object.entries(METHOD).map(([k, l]) => `<button class="btn btn--small btn--primary" type="button" data-qpay="${k}">${l}</button>`).join("")}<button class="btn btn--small" type="button" data-qpay="">ยังไม่รับเงิน</button></div>` : ""}
+      ${R.qSlip === b.ref ? `<div class="q-panel q-slip">${R.qSlipData ? slipCard(b, R.qSlipData) : '<span class="muted">กำลังโหลดสลิป…</span>'}</div>` : ""}
       ${open ? `<div class="q-panel">${b.status === "confirmed" ? `<button class="btn btn--small" type="button" data-qst="waiting|${esc(b.ref)}">ย้ายไปรอนัดวันใหม่</button><button class="btn btn--small" type="button" data-qst="no_show|${esc(b.ref)}">ไม่มา</button>` : ""}${b.status === "checked_in" || b.status === "no_show" ? `<button class="btn btn--small" type="button" data-qst="confirmed|${esc(b.ref)}">ย้อนเป็นจองแล้ว</button>` : ""}${["confirmed", "waiting", "no_show"].includes(b.status) ? `<button class="btn btn--small btn--danger" type="button" data-qst="cancelled|${esc(b.ref)}" data-confirm="กดอีกครั้งเพื่อยกเลิก">ยกเลิกคิว</button>` : ""}<span class="muted small">${esc(b.ref)} · ${CH[b.channel] || esc(b.channel)}</span>${ME.role !== "staff" ? ` <a class="small" href="#abooking" data-aref="${esc(b.ref)}">รายละเอียด</a>` : ""}</div>` : ""}
     </li>`;
   }
@@ -1014,13 +1133,16 @@
   async function viewQueue() {
     const tab = R.qtab || "day", d = R.qday || today();
     const strip0 = R.qstrip || today();
-    const calls = [rpc("staff_days", { p_from: strip0, p_days: 14 }, true), rpc("staff_waiting", {}, true)];
+    const calls = [rpc("staff_days", { p_from: strip0, p_days: 14 }, true), rpc("staff_waiting", {}, true), rpc("staff_slips", {}, true)];
     if (tab === "day") calls.push(rpc("staff_day", { p_day: d }, true));
     if (tab === "search" && (R.qq || "").trim()) calls.push(rpc("staff_search", { p_q: R.qq }, true));
-    const [days, waiting, x] = await Promise.all(calls);
+    if (R.qSlip) calls.push(rpc("staff_slip", { p_ref: R.qSlip }, true).catch(() => null));
+    const res = await Promise.all(calls);
+    const [days, waiting, slips] = res, x = tab === "day" || (tab === "search" && (R.qq || "").trim()) ? res[3] : null;
+    R.qSlipData = R.qSlip ? res[res.length - 1] : null;
     let formSlots = [];
     if (R.qn) { try { formSlots = (await rpc("staff_day", { p_day: R.qn.day }, true)).slots; } catch (e) { formSlots = []; } }
-    const tabs = [["day", "ตารางคิว"], ["search", "ค้นหาลูกค้า"], ["waiting", `รอนัดวันใหม่${waiting.length ? ` <span class="count">${waiting.length}</span>` : ""}`]];
+    const tabs = [["day", "ตารางคิว"], ["slips", `รอตรวจสลิป${slips.length ? ` <span class="count">${slips.length}</span>` : ""}`], ["search", "ค้นหาลูกค้า"], ["waiting", `รอนัดวันใหม่${waiting.length ? ` <span class="count">${waiting.length}</span>` : ""}`]];
     let body = "";
     if (tab === "day") {
       const day = x, all = day.slots.flatMap((s) => s.bookings).concat(day.off_schedule);
@@ -1029,12 +1151,14 @@
       const closedText = day.closed ? "ปิดร้านวันนี้" : (C.closed || []).includes(dow(d)) ? "ร้านหยุดวัน" + thDays[dow(d)] : "ไม่มีรอบวันนี้";
       body = `<div class="q-days" role="group" aria-label="เลือกวัน"><button class="btn btn--small btn--ghost q-shift" type="button" data-qstrip="${addDays(strip0, -7)}" aria-label="7 วันก่อน">‹</button>${days.map((x) => `<button type="button" class="q-day${x.day === d ? " on" : ""}${x.closed ? " closed" : ""}" data-qday="${x.day}" aria-pressed="${x.day === d}"><span class="w">${x.day === today() ? "วันนี้" : esc(wd(x.day))}</span><span class="n">${Number(x.day.slice(8))}</span><span class="c">${x.closed ? "ปิด" : x.people ? x.people + " คน" : "–"}</span></button>`).join("")}<button class="btn btn--small btn--ghost q-shift" type="button" data-qstrip="${addDays(strip0, 7)}" aria-label="7 วันถัดไป">›</button></div>
       <div class="q-dayhead"><button class="btn" type="button" data-qday="${addDays(d, -1)}" aria-label="วันก่อน">‹</button><h2>${esc(dLong(d, "th-TH"))}${day.holiday != null ? ` <span class="badge badge--warn">วันหยุดนักขัตฯ</span>` : ""}</h2><input type="date" id="qdate" value="${d}" aria-label="ไปวันที่"><button class="btn" type="button" data-qday="${addDays(d, 1)}" aria-label="วันถัดไป">›</button><button class="btn" type="button" data-qday="${today()}">วันนี้</button></div>
-      <div class="q-stats">${stat(live.reduce((a, b) => a + b.people, 0), "คนที่จอง")}${stat(all.filter((b) => b.status === "checked_in").reduce((a, b) => a + b.people, 0), "มาแล้ว")}${stat(all.filter((b) => b.status === "confirmed" && payType(b) === "venue").length, "คิวชำระหน้าร้าน")}${stat(all.filter((b) => payType(b) === "package").length, "ใช้คูปอง")}${stat(day.cancelled || 0, "ยกเลิก")}</div>
-      <p class="q-legend">${Object.values(PT).map(([l, k]) => `<span><i class="dot dot--${k}"></i>${l}</span>`).join("")}</p>
+      <div class="q-stats">${stat(live.reduce((a, b) => a + b.people, 0), "คนที่จอง")}${stat(all.filter((b) => b.status === "checked_in").reduce((a, b) => a + b.people, 0), "มาแล้ว")}${stat(all.filter((b) => b.status === "confirmed" && owes(b)).length, "ยังไม่ชำระ")}${stat(all.filter((b) => payType(b) === "package").length, "ใช้คูปอง")}${stat(day.cancelled || 0, "ยกเลิก")}</div>
+      <p class="q-legend">${Object.values(PT_SHOW).map(([l, k]) => `<span><i class="dot dot--${k}"></i>${l}</span>`).join("")}</p>
       ${day.slots.length ? `<div class="q-slots">${day.slots.map((s) => `<section class="q-slot${s.blocked ? " is-blocked" : ""}"><div class="q-slot-head"><b>${s.hm}–${s.end}</b><span class="meter${s.used >= s.capacity ? " full" : ""}" aria-hidden="true"><i style="width:${s.capacity ? Math.min(100, Math.round((s.used * 100) / s.capacity)) : 0}%"></i></span><span class="muted">${s.used}/${s.capacity} คน</span>${s.blocked ? '<span class="badge badge--muted">ปิดรอบ</span>' : `<button class="btn btn--small" type="button" data-qnewat="${s.hm}">+ จองรอบนี้</button>`}</div>${s.bookings.length ? `<ul>${s.bookings.map((b) => qRow(b)).join("")}</ul>` : ""}</section>`).join("")}
         ${day.off_schedule.length ? `<section class="q-slot"><div class="q-slot-head"><b>นอกตารางรอบ</b></div><ul>${day.off_schedule.map((b) => qRow(b)).join("")}</ul></section>` : ""}</div>`
         : `<div class="card q-closed"><h3>${esc(closedText)}</h3><p class="muted">ไม่รับจองวันนี้</p></div>`}
       <p class="muted small" style="margin-top:14px">วันนี้รับได้รอบละ ${day.slots[0] ? day.slots[0].capacity : (C.capacity)} คน · วันธรรมดา ${C.capacity} คน / เสาร์-อาทิตย์และวันหยุดนักขัตฯ ${C.capacity_weekend || C.capacity} คน${ME.role !== "staff" ? ` · <a href="#aday" data-go="aday">ปิดรอบหรือตั้งวันหยุด</a>` : ""}</p>`;
+    } else if (tab === "slips") {
+      body = slips.length ? `<p class="muted small">ลูกค้าโอนผ่านเว็บแล้วแนบสลิป เช็คในแอปธนาคารว่าเงินเข้าจริงแล้วกด “ยืนยันรับโอน”</p><ul class="q-list">${slips.map((b) => qRow(b, { when: true })).join("")}</ul>` : '<p class="empty">ไม่มีสลิปรอตรวจ</p>';
     } else if (tab === "search") {
       const list = x || [];
       body = `<form class="filters" id="qs"><div class="field" style="flex:1 1 260px"><label for="qq">ชื่อ เบอร์ หรือรหัส PD-</label><input type="search" id="qq" value="${esc(R.qq || "")}" autofocus></div><button class="btn" type="submit">ค้นหา</button></form>
@@ -1074,6 +1198,8 @@
         act(async () => { const b = await rpc("staff_create_booking", { p: { day: N.day, hm: N.hm, people: N.people, name: N.name, phone: N.phone, channel: N.channel, pay_type: N.pt, package: N.pkg, note: N.note, over: N.over } }, true); R.qn = null; R.qtab = "day"; R.qday = b.day; return `บันทึกคิว ${b.name} ${b.people} คน ${dShort(b.day, "th-TH")} ${b.hm} แล้ว (${b.ref})`; });
       });
     }
+    bindSlipButtons();
+    $$("[data-qslip]").forEach((b) => b.addEventListener("click", () => { R.qSlip = R.qSlip === b.dataset.qslip ? "" : b.dataset.qslip; R.qOpen = R.qCheckin = ""; render(); }));
     $$("[data-qmore]").forEach((b) => b.addEventListener("click", () => { R.qOpen = R.qOpen === b.dataset.qmore ? "" : b.dataset.qmore; R.qCheckin = ""; render(); }));
     $$("[data-qin]").forEach((b) => b.addEventListener("click", () => {
       if (b.dataset.due === "1") { R.qCheckin = R.qCheckin === b.dataset.qin ? "" : b.dataset.qin; R.qOpen = ""; render(); return; }
@@ -1134,7 +1260,7 @@
     if (R.anchor) { const a = document.getElementById(R.anchor); R.anchor = ""; if (a) a.scrollIntoView(); }
   }
   function bindCommon() {
-    $$("[data-go]").forEach((a) => a.addEventListener("click", (e) => { e.preventDefault(); const [v, anchor] = a.dataset.go.split("#"); const m = $("#mobile-nav"); if (m) m.classList.remove("is-open"); if (v === R.view && anchor) { const el = document.getElementById(anchor); if (el) el.scrollIntoView({ behavior: "smooth" }); return; } go(v, { anchor: anchor || "" }); }));
+    $$("[data-go]").forEach((a) => a.addEventListener("click", (e) => { e.preventDefault(); if (a.dataset.qtabgo) R.qtab = a.dataset.qtabgo; const [v, anchor] = a.dataset.go.split("#"); const m = $("#mobile-nav"); if (m) m.classList.remove("is-open"); if (v === R.view && anchor) { const el = document.getElementById(anchor); if (el) el.scrollIntoView({ behavior: "smooth" }); return; } go(v, { anchor: anchor || "" }); }));
     $$("[data-lang]").forEach((a) => a.addEventListener("click", (e) => { e.preventDefault(); lang = lang === "th" ? "en" : "th"; store.set("pfd-lang", lang); render(); }));
     $$("[data-book]").forEach((a) => a.addEventListener("click", (e) => { e.preventDefault(); BK.people = Math.min(BK.people, 1) || 1; go("book", { pre: a.dataset.book }); }));
     $$("[data-open]").forEach((a) => a.addEventListener("click", (e) => { e.preventDefault(); const [ref, tok] = a.dataset.open.split("|"); go("booking", { hashArg: ref + "/" + tok, ref, token: tok, justBooked: false }); }));

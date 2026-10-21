@@ -1041,3 +1041,32 @@ body[data-mode=adm]{background:#f6f5ee}
 .pub .prose h2 { font-size: 1.2rem; margin: 28px 0 8px; }
 .pub .prose ul { margin: 0; padding-left: 1.2em; display: grid; gap: 6px; color: var(--ink-2); }
 .pub .prose p { color: var(--ink-2); }
+
+/* ---------- pay for an online booking: PromptPay QR and slip ---------- */
+.pub .paybox { background: var(--white); border: 1px solid var(--line); border-radius: var(--r-l); padding: clamp(18px, 3vw, 28px); margin-bottom: 18px; }
+.pub .paybox > p { display: flex; gap: 10px; align-items: flex-start; margin: 0; }
+.pub .paybox-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 16px; margin-bottom: 14px; }
+.pub .paybox-head h2 { margin: 0; font-size: var(--step-2); }
+.pub .hold { margin: 0; color: var(--ink); }
+.pub .hold b { font-variant-numeric: tabular-nums; font-size: 1.25rem; }
+.pub .hold.is-late b { color: var(--warn); }
+.pub .paybox-body { display: grid; gap: 20px; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 720px) { .pub .paybox-body { grid-template-columns: 260px minmax(0, 1fr); align-items: start; } }
+.pub .qr-wrap { margin: 0; justify-self: center; text-align: center; max-width: 260px; width: 100%; }
+.pub .qr-wrap .qr { display: block; width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--line); }
+.pub .qr-wrap figcaption { font-size: .85rem; color: var(--muted, #5d675f); margin-top: 8px; }
+.pub .pay-info p { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 0 0 10px; }
+.pub .pay-info small { flex: 0 0 100%; color: var(--muted, #5d675f); font-size: .82rem; }
+.pub .pay-amt b { font-size: 1.9rem; line-height: 1.1; }
+.pub .slip-field { margin-top: 16px; }
+.pub .slip-field input[type=file] { min-height: 0; padding: 10px; }
+.mono { font-variant-numeric: tabular-nums; letter-spacing: .02em; }
+
+/* the team's view of a slip */
+.slip-img { display: block; max-width: 320px; }
+.slip-img img { display: block; width: 100%; height: auto; border-radius: 10px; border: 1px solid #e4e0cc; }
+.q-page .q-slip { display: block; }
+.q-page .q-slip .slip-card { margin: 0; box-shadow: none; }
+.q-page .dot--await { background: #c9c3a8; } .q-page .dot--review { background: #d2452f; }
+.badge-btn { cursor: pointer; font: inherit; font-size: .8rem; }
+.badge-btn:focus-visible { outline: 2px solid #2f7fc1; outline-offset: 2px; }

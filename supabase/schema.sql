@@ -28,10 +28,16 @@ insert into settings (id, data) values (1, jsonb_build_object(
   'address_th', 'สุขุมวิท 62 กรุงเทพฯ (BTS บางจาก ทางออก 2)',
   'address_en', 'Sukhumvit 62, Bangkok (BTS Bang Chak, Exit 2)',
   'map_url', 'https://maps.app.goo.gl/NJ1KqAuGzCA9HH1v5',
-  'pay_mode', 'venue'            -- venue: pay at the shop. Online payment comes later with Stripe.
+  'pay_mode', 'transfer',        -- transfer: customers pay by PromptPay / bank transfer and attach a slip when booking
+  'hold_min', 15,                -- minutes an unpaid online booking keeps its places before they are released
+  'promptpay', '',               -- PromptPay number (mobile or tax ID) for the payment QR; the owner fills it in under settings
+  'bank_name', '', 'bank_account', '', 'bank_holder', ''
 )) on conflict (id) do nothing;
 -- add settings that came later to a database created before them (keeps any value already set)
 update settings set data = jsonb_build_object('pair_price', 1100) || data where id = 1 and not data ? 'pair_price';
+update settings set data = jsonb_build_object('hold_min', 15, 'promptpay', '', 'bank_name', '', 'bank_account', '', 'bank_holder', '') || data where id = 1 and not data ? 'hold_min';
+-- online bookings are paid before the visit now, not at the shop
+update settings set data = data || '{"pay_mode":"transfer"}'::jsonb where id = 1 and data->>'pay_mode' = 'venue';
 
 create table if not exists slot_overrides (
   day date not null,
@@ -88,7 +94,14 @@ alter table bookings add column if not exists package text not null default ''; 
 -- 'waiting' = the customer will pick a new day later; it holds no place in any session
 alter table bookings drop constraint if exists bookings_status_check;
 alter table bookings add constraint bookings_status_check check (status in ('confirmed','checked_in','cancelled','no_show','waiting'));
+-- pay: due = pay at the shop (team bookings only), await = waiting for the customer's transfer (held until hold_until),
+--      review = slip sent, the team checks it, expired = not paid in time (the booking was released), paid, none
+alter table bookings add column if not exists hold_until timestamptz;
+alter table bookings add column if not exists slip_at timestamptz;
+alter table bookings drop constraint if exists bookings_pay_check;
+alter table bookings add constraint bookings_pay_check check (pay in ('due','await','review','expired','paid','none'));
 create index if not exists bookings_slot on bookings (day, hm);
+create index if not exists bookings_await on bookings (hold_until) where pay = 'await';
 create index if not exists bookings_user on bookings (user_id);
 create index if not exists bookings_phone on bookings (phone);
 create index if not exists bookings_created on bookings (created_at);
@@ -110,6 +123,22 @@ create table if not exists customers (
 );
 alter table customers enable row level security;
 revoke all on customers from anon, authenticated;
+
+-- transfer slips customers attach (a small JPEG, stored as a data URL)
+create table if not exists slips (
+  id bigserial primary key,
+  booking_id bigint not null references bookings(id) on delete cascade,
+  data text not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists slips_booking on slips (booking_id);
+-- filled in by the automatic slip check (EasySlip) later; one bank reference can only pay for one booking
+alter table slips add column if not exists slip_ref text;
+alter table slips add column if not exists amount numeric;
+alter table slips add column if not exists result text not null default '';
+create unique index if not exists slips_ref on slips (slip_ref) where slip_ref is not null;
+alter table slips enable row level security;
+revoke all on slips from anon, authenticated;
 
 create table if not exists staff (
   user_id uuid primary key,
@@ -194,7 +223,8 @@ begin
          coalesce(o.capacity, cap),
          coalesce(o.blocked, false),
          coalesce((select sum(k.people)::int from bookings k
-                   where k.day = p_day and k.hm = b.hm and k.status in ('confirmed','checked_in','no_show')), 0)
+                   where k.day = p_day and k.hm = b.hm and k.status in ('confirmed','checked_in','no_show')
+                     and not (k.pay = 'await' and k.hold_until < now())), 0)
   from base b left join slot_overrides o on o.day = p_day and o.hm = b.hm
   order by b.hm;
 end $$;
@@ -202,6 +232,16 @@ end $$;
 create or replace function _log(p_ref text, p_action text) returns void language sql set search_path = public as $$
   insert into audit (who, ref, action)
   values (coalesce((select email from staff where user_id = auth.uid()), 'ลูกค้า'), coalesce(p_ref, ''), p_action) $$;
+
+-- release online bookings that were not paid in time
+create or replace function _expire_holds() returns void language plpgsql volatile set search_path = public as $$
+declare r record;
+begin
+  for r in update bookings set status = 'cancelled', pay = 'expired', cancelled_at = now()
+            where pay = 'await' and hold_until < now() and status = 'confirmed' returning ref loop
+    insert into audit (who, ref, action) values ('ระบบ', r.ref, 'หมดเวลาชำระ ปล่อยที่นั่งคืน');
+  end loop;
+end $$;
 
 create or replace function _role() returns text language sql stable set search_path = public as $$
   select role from staff where user_id = auth.uid() $$;
@@ -224,7 +264,9 @@ begin
     'people', b.people, 'name', b.name, 'phone', b.phone, 'email', b.email, 'note', b.note,
     'status', b.status, 'pay', b.pay, 'method', b.method, 'total', b.total, 'channel', b.channel,
     'moves', b.moves, 'created_at', b.created_at, 'checked_at', b.checked_at,
-    'can_cancel', b.status = 'confirmed' and now() < cut,
+    'hold_until', b.hold_until, 'slip_at', b.slip_at,
+    -- after paying, cancelling goes through the team (refunds are handled by hand)
+    'can_cancel', b.status = 'confirmed' and now() < cut and b.pay in ('await','due','none'),
     'can_move', b.status = 'confirmed' and now() < cut and b.moves < (c->>'max_moves')::int,
     'cutoff', cut);
 end $$;
@@ -254,10 +296,11 @@ create or replace function public_config() returns jsonb language sql stable sec
 
 -- days and sessions that still have room for a group of p_people
 create or replace function availability(p_from date, p_days int, p_people int)
-returns jsonb language plpgsql stable security definer set search_path = public as $$
+returns jsonb language plpgsql volatile security definer set search_path = public as $$
 declare c jsonb := _cfg(); d date; out jsonb := '[]'::jsonb; day_slots jsonb; earliest timestamptz;
   lastday date := (_now_bkk())::date + (c->>'horizon_days')::int;
 begin
+  perform _expire_holds();
   p_days := least(greatest(coalesce(p_days, 7), 1), 62);
   earliest := now() + make_interval(mins => (c->>'lead_min')::int);
   for i in 0..p_days - 1 loop
@@ -291,6 +334,7 @@ begin
   if v_day is null or v_day > (_now_bkk())::date + (c->>'horizon_days')::int then raise exception 'slot_closed'; end if;
   if _start(v_day, v_hm) < now() + make_interval(mins => (c->>'lead_min')::int) then raise exception 'too_soon'; end if;
 
+  perform _expire_holds();
   perform pg_advisory_xact_lock(hashtext('slot:' || v_day || ' ' || v_hm));
   select * into s from _slots(v_day) x where x.hm = v_hm;
   if not found or s.blocked then raise exception 'slot_closed'; end if;
@@ -300,19 +344,23 @@ begin
     raise exception 'too_many'; end if;
   if s.capacity - s.used < v_people then raise exception 'slot_full'; end if;
 
-  insert into bookings (ref, day, hm, people, name, phone, email, note, total, channel, consent, user_id)
+  insert into bookings (ref, day, hm, people, name, phone, email, note, total, channel, consent, user_id, pay, hold_until)
   values (_ref(), v_day, v_hm, v_people, v_name, v_phone, v_email, left(coalesce(p->>'note', ''), 500),
-          _total(v_people), 'web', coalesce((p->>'consent')::boolean, false), auth.uid())
+          _total(v_people), 'web', coalesce((p->>'consent')::boolean, false), auth.uid(),
+          -- until the shop has filled in where to transfer, bookings stay pay-at-the-shop so none are released by mistake
+          case when coalesce(c->>'promptpay', '') <> '' or coalesce(c->>'bank_account', '') <> '' then 'await' else 'due' end,
+          case when coalesce(c->>'promptpay', '') <> '' or coalesce(c->>'bank_account', '') <> '' then now() + make_interval(mins => greatest(coalesce((c->>'hold_min')::int, 15), 5)) end)
   returning * into b;
-  perform _log(b.ref, 'ลูกค้าจองทางเว็บ ' || v_people || ' คน');
+  perform _log(b.ref, 'ลูกค้าจองทางเว็บ ' || v_people || ' คน' || case when b.pay = 'await' then ' รอโอน' else '' end);
   return jsonb_build_object('ref', b.ref, 'token', b.token);
 end $$;
 
 -- the signed-in customer's bookings, newest first, with the last name and phone they used
 create or replace function my_bookings() returns jsonb
-language plpgsql stable security definer set search_path = public as $$
+language plpgsql volatile security definer set search_path = public as $$
 declare em text := _customer_email();
 begin
+  perform _expire_holds();
   return jsonb_build_object(
     'email', em,
     'last', coalesce((select jsonb_build_object('name', btrim(first_name || ' ' || last_name), 'phone', phone) from customers where user_id = auth.uid()),
@@ -357,8 +405,34 @@ begin
 end $$;
 
 create or replace function get_booking(p_ref text, p_token uuid) returns jsonb
-language sql stable security definer set search_path = public as $$
-  select _booking_json(b) from bookings b where b.ref = upper(p_ref) and b.token = p_token $$;
+language plpgsql volatile security definer set search_path = public as $$
+begin
+  perform _expire_holds();
+  return (select _booking_json(b) from bookings b where b.ref = upper(p_ref) and b.token = p_token);
+end $$;
+
+-- the customer attaches a transfer slip; a booking released for late payment gets its places back if they are still free
+create or replace function submit_slip(p_ref text, p_token uuid, p_image text) returns jsonb
+language plpgsql volatile security definer set search_path = public as $$
+declare b bookings; s record;
+begin
+  if p_image is null or p_image !~ '^data:image/(jpeg|png|webp);base64,' or length(p_image) > 1500000 then raise exception 'slip'; end if;
+  perform _expire_holds();
+  select * into b from bookings where ref = upper(p_ref) and token = p_token for update;
+  if not found then raise exception 'notfound'; end if;
+  if (select count(*) from slips where booking_id = b.id) >= 5 then raise exception 'slip_many'; end if;
+  if b.status = 'cancelled' and b.pay = 'expired' then
+    perform pg_advisory_xact_lock(hashtext('slot:' || b.day || ' ' || b.hm));
+    select * into s from _slots(b.day) x where x.hm = b.hm;
+    if not found or s.blocked or s.capacity - s.used < b.people then raise exception 'hold_expired'; end if;
+    update bookings set status = 'confirmed', cancelled_at = null where id = b.id;
+  elsif not (b.status = 'confirmed' and b.pay in ('await','review')) then raise exception 'change_closed';
+  end if;
+  insert into slips (booking_id, data) values (b.id, p_image);
+  update bookings set pay = 'review', slip_at = now() where id = b.id returning * into b;
+  perform _log(b.ref, 'ลูกค้าแนบสลิปโอนเงิน');
+  return _booking_json(b);
+end $$;
 
 -- "my booking" lookup with the booking reference and the phone number used
 create or replace function find_booking(p_ref text, p_phone text) returns jsonb
@@ -373,7 +447,7 @@ begin
   select * into b from bookings where ref = upper(p_ref) and token = p_token for update;
   if not found then raise exception 'notfound'; end if;
   if not (_booking_json(b)->>'can_cancel')::boolean then raise exception 'change_closed'; end if;
-  update bookings set status = 'cancelled', cancelled_at = now(), pay = case when pay = 'due' then 'none' else pay end
+  update bookings set status = 'cancelled', cancelled_at = now(), pay = case when pay in ('due','await') then 'none' else pay end
    where id = b.id returning * into b;
   perform _log(b.ref, 'ลูกค้ายกเลิกเอง');
   return _booking_json(b);
@@ -419,10 +493,11 @@ begin
 end $$;
 
 create or replace function staff_day(p_day date) returns jsonb
-language plpgsql stable security definer set search_path = public as $$
+language plpgsql volatile security definer set search_path = public as $$
 declare c jsonb := _cfg();
 begin
   perform _need('staff');
+  perform _expire_holds();
   return jsonb_build_object(
     'day', p_day,
     'closed', exists (select 1 from closed_days where day = p_day),
@@ -505,9 +580,9 @@ begin
   if not found then raise exception 'notfound'; end if;
   if b.status <> 'confirmed' then raise exception 'change_closed'; end if;
   update bookings set status = 'checked_in', checked_at = now(),
-         pay = case when pay = 'due' and coalesce(p_method, '') <> '' then 'paid' else pay end,
-         method = case when pay = 'due' and coalesce(p_method, '') <> '' then p_method else method end,
-         paid_at = case when pay = 'due' and coalesce(p_method, '') <> '' then now() else paid_at end
+         pay = case when pay in ('due','await','review') and coalesce(p_method, '') <> '' then 'paid' else pay end,
+         method = case when pay in ('due','await','review') and coalesce(p_method, '') <> '' then p_method else method end,
+         paid_at = case when pay in ('due','await','review') and coalesce(p_method, '') <> '' then now() else paid_at end
    where id = b.id returning * into b;
   perform _log(b.ref, 'เช็คอิน' || case when b.pay = 'paid' and coalesce(p_method, '') <> '' then ' รับเงิน ' || p_method else '' end);
   return _booking_json(b);
@@ -520,10 +595,28 @@ begin
   perform _need('staff');
   if coalesce(p_method, '') not in ('cash','transfer','card','qr') then raise exception 'method'; end if;
   update bookings set pay = 'paid', method = p_method, paid_at = now()
-   where ref = upper(p_ref) and pay = 'due' and status <> 'cancelled' returning * into b;
+   where ref = upper(p_ref) and pay in ('due','await','review') and status <> 'cancelled' returning * into b;
   if not found then raise exception 'change_closed'; end if;
-  perform _log(b.ref, 'รับเงิน ' || p_method);
+  perform _log(b.ref, case when p_method = 'transfer' then 'ยืนยันรับโอน' else 'รับเงิน ' || p_method end);
   return _booking_json(b);
+end $$;
+
+-- the latest slip a customer attached to a booking
+create or replace function staff_slip(p_ref text) returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+begin
+  perform _need('staff');
+  return (select jsonb_build_object('data', s.data, 'at', s.created_at) from slips s join bookings b on b.id = s.booking_id
+          where b.ref = upper(btrim(p_ref)) order by s.created_at desc limit 1);
+end $$;
+
+-- online bookings whose slip is waiting to be checked
+create or replace function staff_slips() returns jsonb
+language plpgsql volatile security definer set search_path = public as $$
+begin
+  perform _need('staff');
+  perform _expire_holds();
+  return coalesce((select jsonb_agg(_staff_json(b) order by b.slip_at) from bookings b where b.pay = 'review' and b.status <> 'cancelled'), '[]'::jsonb);
 end $$;
 
 create or replace function staff_set_status(p_ref text, p_status text) returns jsonb
@@ -537,7 +630,7 @@ begin
   elsif p_status = 'waiting' and b.status = 'confirmed' then
     update bookings set status = 'waiting' where id = b.id returning * into b;
   elsif p_status = 'cancelled' and b.status in ('confirmed','no_show','waiting') then
-    update bookings set status = 'cancelled', cancelled_at = now(), pay = case when pay = 'due' then 'none' else pay end
+    update bookings set status = 'cancelled', cancelled_at = now(), pay = case when pay in ('due','await') then 'none' else pay end
      where id = b.id returning * into b;
   elsif p_status = 'confirmed' and b.status in ('checked_in','no_show') then
     update bookings set status = 'confirmed', checked_at = null where id = b.id returning * into b;
@@ -611,7 +704,7 @@ end $$;
 
 create or replace function staff_save_settings(p jsonb) returns jsonb
 language plpgsql volatile security definer set search_path = public as $$
-declare allowed text[] := array['price','pair_price','capacity','capacity_weekend','duration','times','closed','lead_min','horizon_days','cancel_hours','max_moves','max_group','phone','line','address_th','address_en','map_url'];
+declare allowed text[] := array['price','pair_price','capacity','capacity_weekend','duration','times','closed','lead_min','horizon_days','cancel_hours','max_moves','max_group','phone','line','address_th','address_en','map_url','hold_min','promptpay','bank_name','bank_account','bank_holder'];
   k text; n jsonb := _cfg();
 begin
   perform _need('manager');
@@ -620,6 +713,9 @@ begin
   end loop;
   if (n->>'price')::int < 0 or coalesce((n->>'pair_price')::int, 0) < 0 or (n->>'capacity')::int < 1 or (n->>'capacity_weekend')::int < 1 or (n->>'duration')::int < 10 or (n->>'max_group')::int < 1 then raise exception 'settings'; end if;
   if exists (select 1 from jsonb_array_elements_text(n->'times') t where t.value !~ '^([01][0-9]|2[0-3]):[0-5][0-9]$') then raise exception 'settings'; end if;
+  if coalesce((n->>'hold_min')::int, 15) not between 5 and 1440 then raise exception 'settings'; end if;
+  n := jsonb_set(n, '{promptpay}', to_jsonb(regexp_replace(coalesce(n->>'promptpay', ''), '\D', '', 'g')));
+  if (n->>'promptpay') <> '' and length(n->>'promptpay') not in (10, 13, 15) then raise exception 'promptpay'; end if;
   update settings set data = n where id = 1;
   perform _log('', 'แก้ไขการตั้งค่า');
   return n;
@@ -640,7 +736,8 @@ begin
         'cancelled', (select count(*) from bookings where day = g::date and status = 'cancelled'),
         'capacity', coalesce((select sum(capacity) from _slots(g::date) where not blocked), 0)) order by g)
       from generate_series(d0, p_day, interval '1 day') g),
-    'due_today', (select count(*) from bookings where day = p_day and pay = 'due' and status in ('confirmed','checked_in')));
+    'due_today', (select count(*) from bookings where day = p_day and pay in ('due','await','review') and status in ('confirmed','checked_in')),
+    'slips', (select count(*) from bookings where pay = 'review' and status <> 'cancelled'));
 end $$;
 
 create or replace function staff_team() returns jsonb
@@ -679,10 +776,11 @@ end $$;
 revoke execute on all functions in schema public from public, anon, authenticated;
 -- people booked per day, for the strip of days at the top of the queue page
 create or replace function staff_days(p_from date, p_days int) returns jsonb
-language plpgsql stable security definer set search_path = public as $$
+language plpgsql volatile security definer set search_path = public as $$
 declare out jsonb := '[]'::jsonb; d date;
 begin
   perform _need('staff');
+  perform _expire_holds();
   for i in 0..least(greatest(coalesce(p_days, 14), 1), 62) - 1 loop
     d := p_from + i;
     out := out || jsonb_build_array(jsonb_build_object('day', d,
@@ -711,10 +809,10 @@ begin
 end $$;
 
 grant execute on function public_config(), availability(date, int, int), get_booking(text, uuid),
-  find_booking(text, text), cancel_booking(text, uuid), move_booking(text, uuid, date, text) to anon, authenticated;
+  find_booking(text, text), cancel_booking(text, uuid), move_booking(text, uuid, date, text), submit_slip(text, uuid, text) to anon, authenticated;
 grant execute on function create_booking(jsonb), my_bookings(), my_profile(), save_profile(jsonb) to authenticated;
 grant execute on function staff_me(text), staff_day(date), staff_search(text), staff_booking(text), staff_create_booking(jsonb),
   staff_checkin(text, text), staff_take_payment(text, text), staff_set_status(text, text), staff_move(text, date, text, boolean),
   staff_note(text, text), staff_set_slot(date, text, boolean, int), staff_set_closed_day(date, boolean, text), staff_set_holiday(date, boolean, text), staff_closed_days(),
-  staff_save_settings(jsonb), staff_overview(date), staff_days(date, int), staff_waiting(), staff_export(date, date), staff_team(), staff_invite(text, text, text), staff_remove(text) to authenticated;
+  staff_save_settings(jsonb), staff_overview(date), staff_days(date, int), staff_waiting(), staff_slip(text), staff_slips(), staff_export(date, date), staff_team(), staff_invite(text, text, text), staff_remove(text) to authenticated;
 -- helpers run inside the functions above (which run as the owner), so nobody needs to call them directly
