@@ -887,3 +887,10 @@ body[data-mode=adm]{background:#f6f5ee}
 .pub .price--feature,.pub .price--feature h3,.pub .price--feature .price-amount,.pub .price--feature .price-note,.pub .price--feature small{color:var(--ink)}
 .pub .step-title .num{display:inline-grid;place-items:center;width:30px;height:30px;border-radius:50%;background:var(--sage-2);color:var(--leaf);font:600 .85rem/1 var(--f-text);flex:none}
 .pub .why li{align-items:start}
+.pub .login-box{display:grid;gap:12px;background:var(--sage-2);border:1px solid var(--line);border-radius:8px;padding:18px}
+.pub .login-box p{margin:0}
+.pub .captcha:empty{display:none}
+.pub .signed-in{margin:0 0 14px;color:var(--ink-2);font-size:.92rem}
+.pub .small{font-size:.85rem}
+.pub .btn-row{display:flex;flex-wrap:wrap;gap:10px}
+.adm .captcha:empty{display:none}

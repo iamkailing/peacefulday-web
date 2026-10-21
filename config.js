@@ -3,4 +3,5 @@
 window.PFD_CONFIG = {
   url: "https://tisybvfjejtdjtykowcb.supabase.co",
   key: "sb_publishable_bmOE0_L81KnjRMqKwncIkA_u6vrXE8k",
+  turnstile: "", // Cloudflare Turnstile site key (the bot check). Public by design.
 };

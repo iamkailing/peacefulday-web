@@ -80,7 +80,9 @@ create table if not exists bookings (
   checked_at timestamptz,
   cancelled_at timestamptz
 );
+alter table bookings add column if not exists user_id uuid;
 create index if not exists bookings_slot on bookings (day, hm);
+create index if not exists bookings_user on bookings (user_id);
 create index if not exists bookings_phone on bookings (phone);
 create index if not exists bookings_created on bookings (created_at);
 
@@ -200,6 +202,14 @@ begin
     'cutoff', cut);
 end $$;
 
+-- the signed-in customer (email confirmed with a one-time code); anonymous visitors cannot book
+create or replace function _customer_email() returns text language plpgsql stable as $$
+declare em text := lower(coalesce(auth.jwt()->>'email', ''));
+begin
+  if auth.uid() is null or em = '' or coalesce((auth.jwt()->>'is_anonymous')::boolean, false) then raise exception 'login'; end if;
+  return em;
+end $$;
+
 -- ---------- public: anyone visiting the website ----------
 create or replace function public_config() returns jsonb language sql stable security definer set search_path = public as $$
   select _cfg() || jsonb_build_object('now', now(), 'today', (_now_bkk())::date) $$;
@@ -233,10 +243,12 @@ declare c jsonb := _cfg(); v_day date; v_hm text; v_people int; v_name text; v_p
   s record; b bookings;
 begin
   v_day := (p->>'day')::date; v_hm := p->>'hm'; v_people := (p->>'people')::int;
-  v_name := btrim(coalesce(p->>'name', '')); v_phone := _phone(p->>'phone'); v_email := lower(btrim(coalesce(p->>'email', '')));
+  v_email := _customer_email();
+  v_name := btrim(coalesce(p->>'name', '')); v_phone := _phone(p->>'phone');
   if length(v_name) < 1 or length(v_name) > 120 then raise exception 'name'; end if;
   if v_phone !~ '^0[2-9][0-9]{7,8}$' then raise exception 'phone'; end if;
-  if v_email <> '' and v_email !~ '^[^@\s]+@[^@\s]+\.[^@\s]{2,}$' then raise exception 'email'; end if;
+  if (select count(*) from bookings where user_id = auth.uid() and created_at > now() - interval '1 hour') >= 5 then
+    raise exception 'too_many'; end if;
   if v_people is null or v_people < 1 or v_people > (c->>'max_group')::int then raise exception 'people'; end if;
   if v_day is null or v_day > (_now_bkk())::date + (c->>'horizon_days')::int then raise exception 'slot_closed'; end if;
   if _start(v_day, v_hm) < now() + make_interval(mins => (c->>'lead_min')::int) then raise exception 'too_soon'; end if;
@@ -250,12 +262,25 @@ begin
     raise exception 'too_many'; end if;
   if s.capacity - s.used < v_people then raise exception 'slot_full'; end if;
 
-  insert into bookings (ref, day, hm, people, name, phone, email, note, total, channel, consent)
+  insert into bookings (ref, day, hm, people, name, phone, email, note, total, channel, consent, user_id)
   values (_ref(), v_day, v_hm, v_people, v_name, v_phone, v_email, left(coalesce(p->>'note', ''), 500),
-          v_people * (c->>'price')::int, 'web', coalesce((p->>'consent')::boolean, false))
+          v_people * (c->>'price')::int, 'web', coalesce((p->>'consent')::boolean, false), auth.uid())
   returning * into b;
   perform _log(b.ref, 'ลูกค้าจองทางเว็บ ' || v_people || ' คน');
   return jsonb_build_object('ref', b.ref, 'token', b.token);
+end $$;
+
+-- the signed-in customer's bookings, newest first, with the last name and phone they used
+create or replace function my_bookings() returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare em text := _customer_email();
+begin
+  return jsonb_build_object(
+    'email', em,
+    'last', (select jsonb_build_object('name', name, 'phone', phone) from bookings
+             where user_id = auth.uid() or email = em order by created_at desc limit 1),
+    'bookings', coalesce((select jsonb_agg(_booking_json(b) || jsonb_build_object('token', b.token) order by b.day desc, b.hm desc)
+                          from (select * from bookings where user_id = auth.uid() or email = em order by day desc, hm desc limit 50) b), '[]'::jsonb));
 end $$;
 
 create or replace function get_booking(p_ref text, p_token uuid) returns jsonb
@@ -557,8 +582,9 @@ end $$;
 
 -- ---------- who may call what ----------
 revoke execute on all functions in schema public from public, anon, authenticated;
-grant execute on function public_config(), availability(date, int, int), create_booking(jsonb), get_booking(text, uuid),
+grant execute on function public_config(), availability(date, int, int), get_booking(text, uuid),
   find_booking(text, text), cancel_booking(text, uuid), move_booking(text, uuid, date, text) to anon, authenticated;
+grant execute on function create_booking(jsonb), my_bookings() to authenticated;
 grant execute on function staff_me(), staff_day(date), staff_search(text), staff_booking(text), staff_create_booking(jsonb),
   staff_checkin(text, text), staff_take_payment(text, text), staff_set_status(text, text), staff_move(text, date, text, boolean),
   staff_note(text, text), staff_set_slot(date, text, boolean, int), staff_set_closed_day(date, boolean, text), staff_set_holiday(date, boolean, text), staff_closed_days(),

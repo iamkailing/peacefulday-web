@@ -48,9 +48,45 @@
     if (Date.now() > session.expires_at - 60e3) await refreshSession();
     return session && session.access_token;
   }
+  // customers sign in with an email code; kept apart from the staff session
+  const CUST_KEY = "pfd-customer-session";
+  let cust = store.get(CUST_KEY);
+  const H = { apikey: CFG.key, "Content-Type": "application/json" };
+  const keepCust = (j) => { cust = { access_token: j.access_token, refresh_token: j.refresh_token, expires_at: Date.now() + j.expires_in * 1000, email: (j.user && j.user.email) || (cust && cust.email) || "" }; store.set(CUST_KEY, cust); };
+  async function custToken() {
+    if (!cust) return null;
+    if (Date.now() > cust.expires_at - 60e3) {
+      const r = await fetch(CFG.url + "/auth/v1/token?grant_type=refresh_token", { method: "POST", headers: H, body: JSON.stringify({ refresh_token: cust.refresh_token }) });
+      if (!r.ok) { cust = null; store.del(CUST_KEY); return null; }
+      keepCust(await r.json());
+    }
+    return cust.access_token;
+  }
+  async function requestCode(email, captcha) {
+    const body = { email, create_user: true };
+    if (captcha) body.gotrue_meta_security = { captcha_token: captcha };
+    const r = await fetch(CFG.url + "/auth/v1/otp", { method: "POST", headers: H, body: JSON.stringify(body) });
+    if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.msg || j.error_description || j.message || "otp"); }
+  }
+  async function verifyCode(email, code) {
+    const r = await fetch(CFG.url + "/auth/v1/verify", { method: "POST", headers: H, body: JSON.stringify({ type: "email", email, token: code }) });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.msg || j.error_description || j.message || "verify");
+    keepCust(j);
+  }
+  function custOut() { cust = null; store.del(CUST_KEY); }
+  // bot check (Cloudflare Turnstile); skipped until a site key is set in config.js
+  function mountCaptcha() {
+    const el = document.getElementById("captcha");
+    if (!el || !CFG.turnstile) return;
+    const draw = () => { if (!window.turnstile) return setTimeout(draw, 300); try { window.turnstile.render(el, { sitekey: CFG.turnstile, language: lang, callback: (t) => (R.captcha = t), "expired-callback": () => (R.captcha = ""), "error-callback": () => (R.captcha = "") }); } catch (e) { /* already drawn */ } };
+    R.captcha = ""; draw();
+  }
+  const needCaptcha = () => !!CFG.turnstile && !R.captcha;
+
   async function rpc(fn, args, asStaff) {
     const h = { apikey: CFG.key, "Content-Type": "application/json" };
-    const t = asStaff ? await token() : null;
+    const t = asStaff === "cust" ? await custToken() : asStaff ? await token() : null;
     if (t) h.Authorization = "Bearer " + t;
     const r = await fetch(CFG.url + "/rest/v1/rpc/" + fn, { method: "POST", headers: h, body: JSON.stringify(args || {}) });
     const text = await r.text();
@@ -59,20 +95,22 @@
     return body;
   }
   async function signIn(email, password) {
-    const r = await fetch(CFG.url + "/auth/v1/token?grant_type=password", { method: "POST", headers: { apikey: CFG.key, "Content-Type": "application/json" }, body: JSON.stringify({ email, password }) });
+    const body = { email, password };
+    if (R.captcha) body.gotrue_meta_security = { captcha_token: R.captcha };
+    const r = await fetch(CFG.url + "/auth/v1/token?grant_type=password", { method: "POST", headers: { apikey: CFG.key, "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const j = await r.json();
     if (!r.ok) throw new Error(j.error_description || j.msg || j.message || "login");
     session = { access_token: j.access_token, refresh_token: j.refresh_token, expires_at: Date.now() + j.expires_in * 1000, email: j.user && j.user.email };
     store.set(SESSION_KEY, session);
   }
   async function signUp(email, password) {
-    const r = await fetch(CFG.url + "/auth/v1/signup?redirect_to=" + encodeURIComponent(location.origin + location.pathname), { method: "POST", headers: { apikey: CFG.key, "Content-Type": "application/json" }, body: JSON.stringify({ email, password }) });
+    const r = await fetch(CFG.url + "/auth/v1/signup?redirect_to=" + encodeURIComponent(location.origin + location.pathname), { method: "POST", headers: { apikey: CFG.key, "Content-Type": "application/json" }, body: JSON.stringify(R.captcha ? { email, password, gotrue_meta_security: { captcha_token: R.captcha } } : { email, password }) });
     const j = await r.json();
     if (!r.ok) throw new Error(j.error_description || j.msg || j.message || "signup");
     return j;
   }
   async function resetPassword(email) {
-    await fetch(CFG.url + "/auth/v1/recover?redirect_to=" + encodeURIComponent(location.origin + location.pathname), { method: "POST", headers: { apikey: CFG.key, "Content-Type": "application/json" }, body: JSON.stringify({ email }) });
+    await fetch(CFG.url + "/auth/v1/recover?redirect_to=" + encodeURIComponent(location.origin + location.pathname), { method: "POST", headers: { apikey: CFG.key, "Content-Type": "application/json" }, body: JSON.stringify(R.captcha ? { email, gotrue_meta_security: { captcha_token: R.captcha } } : { email }) });
   }
   async function setPassword(password) {
     const r = await fetch(CFG.url + "/auth/v1/user", { method: "PUT", headers: { apikey: CFG.key, "Content-Type": "application/json", Authorization: "Bearer " + (await token()) }, body: JSON.stringify({ password }) });
@@ -107,6 +145,7 @@
     not_staff: ["บัญชีนี้ยังไม่ได้รับสิทธิ์เข้าหลังบ้าน", "This account doesn't have back-office access yet."],
     settings: ["ค่าที่ตั้งไม่ถูกต้อง", "Some settings aren't valid."],
     method: ["เลือกวิธีรับเงินก่อน", "Choose how the payment was made."],
+    login: ["เข้าสู่ระบบด้วยอีเมลก่อนจอง", "Please sign in with your email first."],
   };
   const errText = (e) => { const m = ERR[e && e.code] || ERR[e && e.message]; return m ? P(m[0], m[1]) : P("ระบบขัดข้อง ลองใหม่อีกครั้ง", "Something went wrong. Please try again."); };
 
@@ -272,6 +311,43 @@
     ];
   }
 
+  // ---------- customer sign-in: email, then the 6-digit code from the email ----------
+  function loginPanel(note) {
+    if (R.otpEmail) return `<div class="login-box" id="otp-box"><p>${P("เราส่งรหัส 6 หลักไปที่", "We sent a 6-digit code to")} <b>${esc(R.otpEmail)}</b> ${P("(ถ้าไม่เห็น ลองดูในอีเมลขยะ)", "(check spam if you don't see it)")}</p>
+      <div class="field"><label for="otp-code">${P("รหัสจากอีเมล", "Code from the email")}</label><input id="otp-code" inputmode="numeric" autocomplete="one-time-code" maxlength="8" placeholder="123456"></div>
+      <div class="btn-row"><button class="btn btn--primary" type="button" data-otp-verify>${P("ยืนยันรหัส", "Confirm code")}</button><button class="btn btn--ghost" type="button" data-otp-again>${P("เปลี่ยนอีเมล / ขอรหัสใหม่", "Change email / new code")}</button></div></div>`;
+    return `<div class="login-box" id="otp-box">${note ? `<p>${note}</p>` : ""}
+      <div class="field"><label for="otp-email">${P("อีเมล", "Email")}</label><input id="otp-email" type="email" autocomplete="email" maxlength="254" value="${esc(R.otpTyped || "")}"></div>
+      <div id="captcha" class="captcha"></div>
+      <button class="btn btn--primary" type="button" data-otp-send>${P("ส่งรหัสไปที่อีเมล", "Email me a code")}</button>
+      <p class="muted small">${P("ไม่ต้องตั้งรหัสผ่าน ใช้รหัสจากอีเมลทุกครั้งที่เข้าสู่ระบบ", "No password needed; we email you a code each time you sign in.")}</p></div>`;
+  }
+  function bindLoginPanel(after) {
+    mountCaptcha();
+    const send = $("[data-otp-send]");
+    if (send) send.addEventListener("click", async () => {
+      const em = $("#otp-email").value.trim().toLowerCase(); R.otpTyped = em;
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(em)) { R.flashErr = errText({ code: "email" }); render(); return; }
+      if (needCaptcha()) { R.flashErr = P("รอให้ช่องตรวจสอบว่าไม่ใช่บอทขึ้นเครื่องหมายถูกก่อน", "Please wait for the robot check to finish."); render(); return; }
+      send.disabled = true;
+      try { await requestCode(em, R.captcha); R.otpEmail = em; R.flash = ""; R.flashErr = ""; }
+      catch (e) { R.flashErr = /rate|seconds|many/i.test(e.message) ? P("ขอรหัสถี่เกินไป รอสักครู่แล้วลองใหม่", "Too many requests. Please wait a moment and try again.") : /captcha/i.test(e.message) ? P("ตรวจสอบว่าไม่ใช่บอทไม่ผ่าน ลองใหม่อีกครั้ง", "The robot check didn't pass. Please try again.") : P("ส่งรหัสไม่สำเร็จ ลองใหม่อีกครั้ง", "Couldn't send the code. Please try again."); }
+      render();
+    });
+    const again = $("[data-otp-again]"); if (again) again.addEventListener("click", () => { R.otpEmail = ""; render(); });
+    const ver = $("[data-otp-verify]");
+    if (ver) ver.addEventListener("click", async () => {
+      const code = $("#otp-code").value.replace(/\D/g, "");
+      try {
+        await verifyCode(R.otpEmail, code); R.otpEmail = ""; R.flashErr = "";
+        try { const m = await rpc("my_bookings", {}, "cust"); if (m && m.last) { BK.name = BK.name || m.last.name; BK.phone = BK.phone || m.last.phone; } } catch (e) { /* first booking */ }
+        if (after) after(); render();
+      } catch (e) { R.flashErr = P("รหัสไม่ถูกต้องหรือหมดอายุ ลองใหม่หรือขอรหัสใหม่", "That code is wrong or has expired. Try again or ask for a new one."); render(); }
+    });
+    const oc = $("#otp-code"); if (oc) { oc.focus(); oc.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); ver.click(); } }); }
+  }
+  const signedInLine = () => `<p class="signed-in">${P("เข้าสู่ระบบเป็น", "Signed in as")} <b>${esc(cust.email)}</b> · <a href="#" data-cust-out>${P("ออกจากระบบ", "Sign out")}</a></p>`;
+
   // ---------- booking: people → day → time → details → confirm ----------
   async function viewBook() {
     if (R.pre) { const [d, h] = R.pre.split("|"); BK.day = d; BK.hm = h; R.pre = ""; }
@@ -306,14 +382,14 @@
           `<div class="times" role="group">${slots.map((s) => `<button type="button" class="time" data-hm="${s.hm}" aria-pressed="${s.hm === BK.hm}"${s.ok ? "" : " disabled"}><b>${s.hm}</b><span class="${s.remaining > 0 && s.remaining <= 2 ? "low" : ""}">${s.remaining > 0 ? P("ว่าง " + s.remaining, s.remaining + " left") : P("เต็ม", "Full")}</span></button>`).join("")}</div>`}
       </div>
       <div class="step"><div class="step-title"><span class="num" aria-hidden="true"></span><h2>${P("ข้อมูลผู้จอง", "Your details")}</h2></div>
+        ${!cust ? loginPanel(P("เข้าสู่ระบบด้วยอีเมลก่อนจอง เราจะส่งรหัส 6 หลักไปให้", "Sign in with your email to book. We'll send you a 6-digit code.")) : `${signedInLine()}
         ${field("name", P("ชื่อ", "Name"), `<input type="text" id="f-name" data-bk="name" autocomplete="name" maxlength="120" value="${esc(BK.name)}">`)}
         <div class="row-2">
           ${field("phone", P("เบอร์โทร", "Phone"), `<input type="tel" id="f-phone" data-bk="phone" autocomplete="tel" inputmode="tel" maxlength="20" placeholder="08x-xxx-xxxx" value="${esc(BK.phone)}">`)}
-          ${field("email", P("อีเมล (ไม่บังคับ)", "Email (optional)"), `<input type="email" id="f-email" data-bk="email" autocomplete="email" maxlength="254" value="${esc(BK.email)}">`)}
         </div>
         <div class="field"><label for="f-note">${P("แจ้งทีมงาน (ไม่บังคับ)", "Anything we should know? (optional)")}</label><textarea id="f-note" data-bk="note" maxlength="500" rows="2">${esc(BK.note)}</textarea></div>
         <label class="check${fe.health ? " has-error" : ""}"><input type="checkbox" id="f-health" data-bkc="health"${BK.health ? " checked" : ""}><span>${P("ฉันอ่านข้อควรระวังด้านสุขภาพแล้ว และจะแจ้งทีมงานถ้ามีโรคประจำตัว", "I've read the health note and will tell the team about any medical condition.")}</span></label>
-        <label class="check${fe.agree ? " has-error" : ""}"><input type="checkbox" id="f-agree" data-bkc="agree"${BK.agree ? " checked" : ""}><span>${esc(P("ฉันรับทราบเงื่อนไข: ", "I accept the terms: ") + policyLine())}</span></label>
+        <label class="check${fe.agree ? " has-error" : ""}"><input type="checkbox" id="f-agree" data-bkc="agree"${BK.agree ? " checked" : ""}><span>${esc(P("ฉันรับทราบเงื่อนไข: ", "I accept the terms: ") + policyLine())}</span></label>`}
       </div>
     </div>
     <aside class="book-side"><div class="summary">
@@ -341,20 +417,21 @@
     $$("[data-bkc]").forEach((i) => i.addEventListener("change", () => { BK[i.dataset.bkc] = i.checked; }));
     const strip = $(".dates"), sel = $(".dates [aria-pressed=true]");
     if (strip && sel) strip.scrollLeft = Math.max(0, sel.offsetLeft - strip.offsetLeft - (strip.clientWidth - sel.offsetWidth) / 2);
+    bindLoginPanel();
     $("#book").addEventListener("submit", async (ev) => {
       ev.preventDefault();
       if (R.busy) return;
       BK.fieldErr = {}; BK.err = "";
+      if (!cust) { BK.err = P("เข้าสู่ระบบด้วยอีเมลก่อนยืนยันการจอง", "Please sign in with your email before confirming."); render(); const ob = $("#otp-box"); if (ob) ob.scrollIntoView({ block: "center" }); return; }
       if (!BK.hm) { BK.err = P("เลือกเวลาก่อน", "Please choose a time."); render(); return; }
       if (!BK.name.trim()) BK.fieldErr.name = errText({ code: "name" });
       if (!/^0[2-9]\d{7,8}$/.test(BK.phone.replace(/\D/g, "").replace(/^66(\d{9})$/, "0$1"))) BK.fieldErr.phone = errText({ code: "phone" });
-      if (BK.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(BK.email.trim())) BK.fieldErr.email = errText({ code: "email" });
       if (!BK.health) BK.fieldErr.health = P("กรุณายืนยันข้อควรระวังด้านสุขภาพ", "Please confirm the health note.");
       if (!BK.agree) BK.fieldErr.agree = P("กรุณายอมรับเงื่อนไข", "Please accept the terms.");
       if (Object.keys(BK.fieldErr).length) { BK.err = Object.values(BK.fieldErr)[0]; render(); return; }
       R.busy = true; render();
       try {
-        const res = await rpc("create_booking", { p: { day: BK.day, hm: BK.hm, people: BK.people, name: BK.name, phone: BK.phone, email: BK.email, note: BK.note, consent: true } });
+        const res = await rpc("create_booking", { p: { day: BK.day, hm: BK.hm, people: BK.people, name: BK.name, phone: BK.phone, note: BK.note, consent: true } }, "cust");
         const mine = store.get("pfd-mine") || []; mine.unshift({ ref: res.ref, token: res.token }); store.set("pfd-mine", mine.slice(0, 10));
         R.busy = false; BK.hm = ""; BK.note = "";
         go("booking", { hashArg: res.ref + "/" + res.token, ref: res.ref, token: res.token, justBooked: true });
@@ -363,6 +440,7 @@
         if (e.code === "name" || e.code === "phone" || e.code === "email") BK.fieldErr[e.code] = errText(e);
         if (e.code === "duplicate" || e.code === "too_many") BK.fieldErr.phone = errText(e);
         if (e.code === "slot_full" || e.code === "too_soon" || e.code === "slot_closed") BK.hm = "";
+        if (e.code === "login" || /JWT/i.test(e.message)) custOut();
         BK.err = errText(e); render();
       }
     });
@@ -426,29 +504,18 @@
   }
 
   // ---------- find my booking ----------
-  function viewMy() {
-    const mine = store.get("pfd-mine") || [];
-    return pubLayout(`<header class="page-head"><div class="wrap"><h1>${P("การจองของฉัน", "My booking")}</h1></div></header>
-<section class="section" style="padding-top:8px"><div class="wrap">${flashHTML()}<div class="split">
-  <form class="panel" id="find"><h2 style="font-size:var(--step-2);margin-bottom:12px">${P("ค้นด้วยรหัสการจองและเบอร์โทร", "Find with your reference and phone")}</h2>
-    <div class="field"><label for="ref">${P("รหัสการจอง (PD-…)", "Booking reference (PD-…)")}</label><input type="text" id="ref" autocomplete="off" maxlength="12" style="text-transform:uppercase"></div>
-    <div class="field"><label for="phone">${P("เบอร์โทรที่ใช้จอง", "Phone used to book")}</label><input type="tel" id="phone" inputmode="tel" maxlength="20"></div>
-    <button class="btn btn--primary" type="submit">${P("ค้นหา", "Find")}</button>
-  </form>
-  <div><h2 style="font-size:var(--step-2)">${P("ที่จองจากเครื่องนี้", "Booked on this device")}</h2>
-    ${mine.length ? `<ul class="plain-list">${mine.map((m) => `<li><a href="#booking/${esc(m.ref)}/${esc(m.token)}" data-open="${esc(m.ref)}|${esc(m.token)}">${esc(m.ref)}</a></li>`).join("")}</ul>` : `<p class="muted">${P("ยังไม่มี", "None yet.")}</p>`}
-  </div></div></div></section>`);
+  async function viewMy() {
+    let mine = null;
+    if (cust) { try { mine = await rpc("my_bookings", {}, "cust"); } catch (e) { if (e.code === "login" || /JWT/i.test(e.message)) custOut(); } }
+    const st = { confirmed: P("จองแล้ว", "Booked"), checked_in: P("เช็คอินแล้ว", "Checked in"), cancelled: P("ยกเลิกแล้ว", "Cancelled"), no_show: P("ไม่ได้มา", "Missed") };
+    return pubLayout(`<header class="page-head"><div class="wrap"><h1>${P("การจองของฉัน", "My bookings")}</h1></div></header>
+<section class="section" style="padding-top:8px"><div class="wrap">${flashHTML()}
+  ${mine ? `${signedInLine()}${mine.bookings.length ? `<div class="cards">${mine.bookings.map((b) => `<a class="bcard" href="#booking/${esc(b.ref)}/${esc(b.token)}" data-open="${esc(b.ref)}|${esc(b.token)}"><span class="date-badge"><b>${Number(b.day.slice(8))}</b><span>${esc(mon(b.day))}</span></span><span class="info"><b>${esc(b.hm)} · ${b.people} ${P("คน", "people")}</b><span>${esc(b.ref)} · ${esc(dShort(b.day))}</span></span><span class="badge ${b.status === "confirmed" || b.status === "checked_in" ? "badge--ok" : "badge--bad"}">${st[b.status]}</span></a>`).join("")}</div>` : `<p class="muted">${P("ยังไม่มีการจอง", "No bookings yet.")}</p>`}<p class="mt-m"><a class="btn btn--primary" href="#book" data-go="book">${P("จองรอบ", "Book a session")}</a></p>`
+  : `<div class="panel" style="max-width:520px"><h2 style="font-size:var(--step-2);margin-bottom:12px">${P("เข้าสู่ระบบเพื่อดูการจอง", "Sign in to see your bookings")}</h2>${loginPanel("")}</div>`}
+</div></section>`);
   }
-  function bindMy() {
-    $("#find").addEventListener("submit", async (e) => {
-      e.preventDefault();
-      try {
-        const r = await rpc("find_booking", { p_ref: $("#ref").value, p_phone: $("#phone").value });
-        if (!r) { R.flashErr = P("ไม่พบการจองที่ตรงกับรหัสและเบอร์โทรนี้", "No booking matches that reference and phone."); render(); return; }
-        go("booking", { hashArg: r.ref + "/" + r.token, ref: r.ref, token: r.token, justBooked: false });
-      } catch (err) { R.flashErr = errText(err); render(); }
-    });
-  }
+  function bindMy() { if (!cust) bindLoginPanel(); }
+
 
   // ================= back office =================
   const ROLE = { owner: "เจ้าของ", manager: "ผู้จัดการ", staff: "พนักงาน" };
@@ -477,12 +544,14 @@
   ${R.flash ? `<div class="alert alert--ok">${esc(R.flash)}</div>` : ""}${R.flashErr ? `<div class="alert alert--bad" role="alert">${esc(R.flashErr)}</div>` : ""}
   <div class="field"><label for="l-email">อีเมล</label><input type="email" id="l-email" autocomplete="username" required value="${esc(R.loginEmail || "")}"></div>
   <div class="field"><label for="l-pass">รหัสผ่าน</label><input type="password" id="l-pass" autocomplete="${R.signup ? "new-password" : "current-password"}" required minlength="8"></div>
+  <div id="captcha" class="captcha"></div>
   <button class="btn btn--primary btn--block" type="submit">${R.signup ? "สร้างบัญชีทีมงาน" : "เข้าสู่ระบบ"}</button>
   <p class="muted small">${R.signup ? `มีบัญชีแล้ว? <a href="#admin" data-signup="0">เข้าสู่ระบบ</a>` : `ครั้งแรก (เจ้าของหรือทีมงานที่ได้รับเชิญ)? <a href="#admin" data-signup="1">สร้างบัญชีด้วยอีเมลที่ได้รับเชิญ</a>`} · <a href="#admin" data-forgot>ลืมรหัสผ่าน</a></p>
   <p class="muted small"><a href="#home" data-go="home">กลับหน้าเว็บลูกค้า</a></p>
 </form></div></div>`;
   }
   function bindLogin() {
+    mountCaptcha();
     $$("[data-signup]").forEach((a) => a.addEventListener("click", (e) => { e.preventDefault(); R.signup = a.dataset.signup === "1"; R.flash = R.flashErr = ""; render(); }));
     const fg = $("[data-forgot]");
     if (fg) fg.addEventListener("click", async (e) => {
@@ -739,6 +808,7 @@
     $$("[data-copy]").forEach((b) => b.addEventListener("click", () => { const t = b.dataset.copy, l = b.textContent; const done = (ok) => { b.textContent = ok ? P("คัดลอกแล้ว", "Copied") : P("เลือกข้อความไว้แล้ว", "Selected"); setTimeout(() => (b.textContent = l), 2000); }; try { navigator.clipboard.writeText(t).then(() => done(true), () => { const i = b.parentElement.querySelector("input"); if (i) i.select(); done(false); }); } catch (e) { done(false); } }));
     const menu = $("[data-menu]"); if (menu) menu.addEventListener("click", () => { const n = $("#mobile-nav"); const o = !n.classList.contains("is-open"); n.classList.toggle("is-open", o); menu.setAttribute("aria-expanded", String(o)); });
     const side = $("[data-side]"); if (side) side.addEventListener("click", () => { R.sideOpen = !R.sideOpen; render(); });
+    $$("[data-cust-out]").forEach((a) => a.addEventListener("click", (e) => { e.preventDefault(); custOut(); BK.name = ""; BK.phone = ""; render(); }));
     const so = $("[data-signout]"); if (so) so.addEventListener("click", () => { signOut(); ME = null; go("admin"); });
     $$("[data-confirm]").forEach((b) => b.addEventListener("click", (e) => { if (b.dataset.armed === "1") return; e.stopImmediatePropagation(); e.preventDefault(); b.dataset.armed = "1"; const o = b.textContent; b.textContent = b.dataset.confirm; setTimeout(() => { if (b.isConnected) { b.dataset.armed = ""; b.textContent = o; } }, 4000); }, true));
   }
