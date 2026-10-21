@@ -1,0 +1,32 @@
+{{define "main"}}{{$d := .Data}}{{$q := $d.Q}}
+<div class="topline"><h1>การชำระเงิน</h1><span class="badge badge--info">ผู้ให้บริการ: {{$d.Provider}}</span>
+  <a class="btn" href="/admin/payments?{{qs "from" (date $d.From) "to" (date $d.To) "status" ($q.Get "status") "format" "csv"}}">ดาวน์โหลด CSV</a></div>
+<form class="filters" method="get" action="/admin/payments" data-autosubmit>
+  <div class="field"><label>ตั้งแต่</label><input type="date" name="from" value="{{date $d.From}}"></div>
+  <div class="field"><label>ถึง</label><input type="date" name="to" value="{{date $d.To}}"></div>
+  <div class="field"><label>สถานะ</label><select name="status"><option value="">ทั้งหมด</option>{{range $k, $v := dict "paid" "ชำระแล้ว" "pending" "รอชำระ" "failed" "ไม่สำเร็จ" "expired" "หมดเวลา" "refunded" "คืนเงินแล้ว" "partially_refunded" "คืนบางส่วน"}}<option value="{{$k}}"{{if eq ($q.Get "status") $k}} selected{{end}}>{{$v}}</option>{{end}}</select></div>
+</form>
+<div class="kpis">
+  <div class="kpi"><span class="label">รับเงินแล้ว (ในรายการด้านล่าง)</span><span class="value">{{baht $d.Totals.Paid}}</span></div>
+  <div class="kpi"><span class="label">คืนเงินแล้ว</span><span class="value">{{baht $d.Totals.Refunded}}</span></div>
+  <div class="kpi"><span class="label">สุทธิ</span><span class="value">{{baht (sub64 $d.Totals.Paid $d.Totals.Refunded)}}</span></div>
+  <div class="kpi"><span class="label">รอชำระ</span><span class="value">{{baht $d.Totals.Pending}}</span></div>
+</div>
+{{if $d.Unprocessed}}<div class="alert alert--warn" style="margin-top:14px"><b>Webhook ที่ยังประมวลผลไม่สำเร็จ</b> (ระบบจะรอให้ผู้ให้บริการส่งซ้ำอัตโนมัติ ถ้าค้างนานให้ตรวจข้อความ error)
+  <ul>{{range $d.Unprocessed}}<li><span class="mono">{{.ID}}</span> · {{.Type}} · {{datetime .At}}{{with .Err}} · <span class="mono">{{.}}</span>{{end}}</li>{{end}}</ul></div>{{end}}
+<section class="card" style="margin-top:14px">
+  {{if $d.List}}<div class="table-wrap"><table>
+    <thead><tr><th>เวลา</th><th>รายการ</th><th>ลูกค้า</th><th>ช่องทาง</th><th>สถานะ</th><th class="num">ยอด</th><th class="num">คืน</th><th>อ้างอิงผู้ให้บริการ</th></tr></thead>
+    <tbody>{{range $d.List}}<tr>
+      <td class="nowrap">{{if .PaidAt.Valid}}{{datetime .PaidAt.Time}}{{else}}{{datetime .Created}}{{end}}</td>
+      <td>{{if hasPrefix .Ref "PD-"}}<a class="mono" href="/admin/bookings/{{.Ref}}">{{.Ref}}</a>{{else}}<span class="mono">{{.Ref}}</span>{{end}}</td>
+      <td>{{.Customer}}</td>
+      <td>{{.Provider}}<span class="sub">{{methodName .Method}}</span></td>
+      <td>{{template "pay" .Status}}</td>
+      <td class="num">{{baht .Amount}}</td><td class="num">{{if .Refunded}}{{baht .Refunded}}{{else}}–{{end}}</td>
+      <td><span class="mono">{{if .PaymentRef}}{{.PaymentRef}}{{else}}{{.Session}}{{end}}</span></td>
+    </tr>{{end}}</tbody></table></div>
+  {{else}}<p class="empty">ไม่มีรายการในช่วงนี้</p>{{end}}
+</section>
+<p class="muted"><small>กระทบยอด: เทียบยอดและเลขอ้างอิงในตารางนี้กับรายงานใน Stripe Dashboard (Payments → Export) ได้ทุกวัน · รายการ ‘venue’ คือเงินที่รับหน้าร้าน</small></p>
+{{end}}

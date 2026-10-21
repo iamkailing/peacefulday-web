@@ -1,0 +1,9 @@
+{{define "main"}}{{$L := .L}}
+<header class="page-head">
+  <div class="sun" aria-hidden="true"></div>
+  <div class="wrap"><h1>{{$L.T "nav.contact"}}</h1></div>
+</header>
+<section class="section" style="padding-top:8px" aria-labelledby="loc-title">
+  <div class="wrap loc">{{template "location" .}}</div>
+</section>
+{{end}}

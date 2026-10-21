@@ -1,0 +1,44 @@
+{{define "main"}}{{$d := .Data}}
+<div class="topline">
+  <h1>ภาพรวมวันนี้ <span class="muted" style="font-weight:400;font-size:1rem">{{thlong $d.Today}}</span></h1>
+  {{if .Staff.Can "bookings.edit"}}<a class="btn btn--primary" href="/admin/bookings/new">+ สร้างการจอง</a><a class="btn" href="/admin/checkin">เช็คอิน</a>{{end}}
+</div>
+{{template "metrics" $d.KPIs}}
+
+<div class="grid grid-21" style="margin-top:14px">
+  <section class="card" aria-labelledby="sess-h">
+    <div class="card-head"><h2 id="sess-h">รอบของวันนี้</h2>{{if .Staff.Can "bookings.view"}}<a class="btn btn--small" href="/admin/calendar">ดูรายชื่อแต่ละรอบ</a>{{end}}</div>
+    {{if $d.Sessions}}
+    <div class="table-wrap"><table>
+      <thead><tr><th>เวลา</th><th class="num">จองแล้ว</th><th class="num">รอชำระ</th><th class="num">ว่าง</th><th>สถานะ</th></tr></thead>
+      <tbody>
+      {{range $d.Sessions}}<tr{{if past .EndsAt}} class="is-dim"{{end}}>
+        <td class="nowrap"><b>{{hm .StartsAt}}</b>–{{hm .EndsAt}}</td>
+        <td class="num">{{.Booked}}/{{.Capacity}}</td><td class="num">{{if .Held}}{{.Held}}{{else}}–{{end}}</td><td class="num">{{.Remaining}}</td>
+        <td>{{if eq .Status "blocked"}}<span class="badge badge--muted">ปิด</span>{{else if eq .Remaining 0}}<span class="badge badge--warn">เต็ม</span>{{else}}<span class="badge badge--ok">เปิด</span>{{end}}</td>
+      </tr>{{end}}
+      </tbody></table></div>
+    {{else}}<p class="empty">วันนี้ไม่มีรอบ (ร้านปิด หรือยังไม่ได้ตั้งตาราง)</p>{{end}}
+  </section>
+  <section class="card" aria-labelledby="pay-h">
+    <h2 id="pay-h">ต้องดูแล</h2>
+    <dl class="kv">
+      <dt>กำลังรอลูกค้าชำระ</dt><dd>{{$d.Pay.Holds}} การจอง</dd>
+      <dt>ชำระไม่สำเร็จ (ยังกันที่)</dt><dd>{{$d.Pay.Failed}}</dd>
+      <dt>รอเก็บเงินที่ร้าน</dt><dd>{{$d.Pay.Due}}</dd>
+      <dt>การจองที่ต้องตรวจสอบ</dt><dd>{{if $d.Pay.Attention}}<a href="/admin/bookings?attention=1"><b>{{$d.Pay.Attention}}</b></a>{{else}}0{{end}}</dd>
+      <dt>Webhook ค้างประมวลผล</dt><dd>{{if $d.Pay.Unprocessed}}<span class="badge badge--bad">{{$d.Pay.Unprocessed}}</span>{{else}}0{{end}}</dd>
+      <dt>อีเมลส่งไม่สำเร็จ</dt><dd>{{if $d.FailedNotes}}<a href="/admin/notifications"><span class="badge badge--bad">{{$d.FailedNotes}}</span></a>{{else}}0{{end}}</dd>
+    </dl>
+    {{if $d.Attention}}<h3 style="margin:16px 0 8px">รายการที่ต้องตรวจสอบ</h3>
+    <ul class="timeline">{{range $d.Attention}}<li><time>{{.Ref}}</time><span><a href="/admin/bookings/{{.Ref}}">{{.CustomerName}}</a> · {{.NeedsAttention}}</span></li>{{end}}</ul>{{end}}
+  </section>
+</div>
+
+{{if .Staff.Can "analytics.revenue"}}
+<section class="card" style="margin-top:14px" aria-labelledby="rev-h">
+  <div class="card-head"><h2 id="rev-h">รายได้สุทธิ 14 วันล่าสุด</h2><a class="btn btn--small" href="/admin/analytics">รายงานเต็ม</a></div>
+  {{$d.Spark}}
+</section>
+{{end}}
+{{end}}

@@ -1,0 +1,21 @@
+{{define "main"}}{{$L := .L}}{{$d := .Data}}
+<section class="section">
+  <div class="wrap" style="max-width:560px">
+    <div class="alert alert--warn" role="note">{{template "ico-alert"}}<p><b>{{$L.Pick "หน้าชำระเงินจำลอง (โหมดทดสอบ)" "Simulated payment page (test mode)"}}</b><br>{{$L.Pick "ไม่มีการเก็บเงินจริง ใช้สำหรับทดสอบระบบก่อนเชื่อม Stripe เท่านั้น ผลการชำระจะส่งผ่านขั้นตอนเดียวกับ webhook จริง (ตรวจลายเซ็นก่อนยืนยัน)" "No money moves. This page exists only to test the system before Stripe is connected. The result goes through the same signed-webhook path as a real payment."}}</p></div>
+    <div class="panel">
+      <p class="muted" style="margin:0">{{if eq $d.Kind "booking"}}{{$L.T "conf.ref"}}{{else}}{{$L.Pick "คำสั่งซื้อ" "Order"}}{{end}}</p>
+      <p class="ticket-ref">{{$d.Ref}}</p>
+      <div class="sum-total"><span>{{$L.T "book.total"}}</span><b>{{baht $d.Amount}}</b></div>
+      {{if eq $d.Status "pending"}}
+      <form method="post" class="mt-m" style="display:grid;gap:10px">
+        <input type="hidden" name="csrf" value="{{.CSRF}}">
+        <button class="btn btn--primary" name="action" value="promptpay">{{$L.Pick "จำลอง: จ่ายด้วย PromptPay สำเร็จ" "Simulate: PromptPay payment succeeds"}}</button>
+        <button class="btn" name="action" value="card">{{$L.Pick "จำลอง: จ่ายด้วยบัตรสำเร็จ" "Simulate: card payment succeeds"}}</button>
+        <button class="btn btn--danger" name="action" value="fail">{{$L.Pick "จำลอง: จ่ายไม่สำเร็จ" "Simulate: payment fails"}}</button>
+        <button class="btn btn--ghost" name="action" value="cancel">{{$L.Pick "กลับไปโดยไม่จ่าย" "Go back without paying"}}</button>
+      </form>
+      {{else}}<p class="muted">{{$L.Pick "รายการนี้ไม่ได้รอชำระแล้ว" "This payment is no longer pending."}} ({{$d.Status}})</p>{{end}}
+    </div>
+  </div>
+</section>
+{{end}}

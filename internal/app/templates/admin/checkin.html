@@ -1,0 +1,29 @@
+{{define "main"}}{{$d := .Data}}
+<div class="topline"><h1>เช็คอิน</h1><span class="muted">{{thlong now}}</span></div>
+<div class="grid grid-12">
+  <section class="card scan">
+    <h2>สแกน QR หรือค้นหา</h2>
+    <form method="post" action="/admin/checkin">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <div class="field"><label for="code">QR / รหัสการจอง / เบอร์โทร</label><input class="big-input" type="text" id="code" name="code" autocomplete="off" autofocus required placeholder="PD-XXXXXX หรือ 08xxxxxxxx"></div>
+      <div class="btn-row" style="margin-top:10px"><button class="btn btn--primary" type="submit">ค้นหา</button><button class="btn" type="button" data-scan>สแกนด้วยกล้อง</button></div>
+    </form>
+    <video data-scan-video playsinline muted hidden></video>
+    <p class="muted"><small>เครื่องสแกนแบบ USB/บลูทูธใช้ได้ทันที (พิมพ์ลงช่องแล้วกด Enter) · กล้องในเบราว์เซอร์รองรับบน Chrome/Android</small></p>
+  </section>
+  <section class="card">
+    <h2>ลูกค้าวันนี้ ({{len $d.List}} การจอง)</h2>
+    {{if $d.List}}
+    <div class="table-wrap"><table>
+      <thead><tr><th>เวลา</th><th>ลูกค้า</th><th class="num">คน</th><th>สถานะ</th><th></th></tr></thead>
+      <tbody>{{range $d.List}}<tr{{if eq .Status "checked_in"}} class="is-dim"{{end}}>
+        <td class="nowrap"><b>{{hm .StartsAt}}</b></td>
+        <td><a href="/admin/bookings/{{.Ref}}">{{.CustomerName}}</a><span class="sub">{{phone .Phone}} · {{.Ref}}</span></td>
+        <td class="num">{{.Participants}}</td>
+        <td>{{template "st" .Status}} {{if eq .PaymentState "due_at_venue"}}{{template "pay" .PaymentState}}{{end}}</td>
+        <td>{{if eq .Status "confirmed"}}{{if eq .PaymentState "due_at_venue"}}<a class="btn btn--small" href="/admin/bookings/{{.Ref}}">รับเงิน</a>{{else}}<form class="inline-form" method="post" action="/admin/bookings/{{.Ref}}/action"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="action" value="checkin"><input type="hidden" name="return" value="/admin/checkin"><button class="btn btn--small btn--primary">เช็คอิน</button></form>{{end}}{{end}}</td>
+      </tr>{{end}}</tbody></table></div>
+    {{else}}<p class="empty">วันนี้ยังไม่มีการจอง</p>{{end}}
+  </section>
+</div>
+{{end}}

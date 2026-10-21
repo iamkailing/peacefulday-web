@@ -1,0 +1,37 @@
+{{define "main"}}{{$d := .Data}}
+<div class="topline"><h1>โค้ดส่วนลดและโค้ดแนะนำเพื่อน</h1></div>
+<section class="card">
+  {{if $d.List}}<div class="table-wrap"><table>
+    <thead><tr><th>โค้ด</th><th>ส่วนลด</th><th>เงื่อนไข</th><th class="num">ใช้แล้ว</th><th class="num">ส่วนลดรวม</th><th class="num">ยอดจอง</th><th>สถานะ</th><th></th></tr></thead>
+    <tbody>{{range $d.List}}<tr{{if not .Active}} class="is-dim"{{end}}>
+      <td><b class="mono">{{.Code}}</b>{{with .Description}}<span class="sub">{{.}}</span>{{end}}{{if .Referrer.Valid}}<span class="sub">แนะนำโดย {{.Referrer.String}}</span>{{end}}{{with .Campaign}}<span class="sub">แคมเปญ {{.}}</span>{{end}}</td>
+      <td class="nowrap">{{if eq .Kind "percent"}}{{.Value}}%{{else}}{{baht .Value}}{{end}}</td>
+      <td><small>{{if .MaxUses}}ใช้ได้ {{.MaxUses}} ครั้ง · {{end}}{{if .PerCustomer}}{{.PerCustomer}} ครั้ง/คน · {{end}}ขั้นต่ำ {{.MinParticipants}} คน{{if .From.Valid}} · ตั้งแต่ {{thdate .From.Time}}{{end}}{{if .Until.Valid}} · ถึง {{thdate .Until.Time}}{{end}}{{if .ProductIDs}} · เฉพาะบางสินค้า{{end}}</small></td>
+      <td class="num">{{.Used}}</td><td class="num">{{baht .Discounts}}</td><td class="num">{{baht .Revenue}}</td>
+      <td>{{if .Active}}<span class="badge badge--ok">ใช้งาน</span>{{else}}<span class="badge badge--muted">ปิด</span>{{end}}</td>
+      <td><form method="post" action="/admin/promos" class="inline-form"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="toggle" value="{{.ID}}"><button class="btn btn--small">{{if .Active}}ปิด{{else}}เปิด{{end}}</button></form></td>
+    </tr>{{end}}</tbody></table></div>
+  {{else}}<p class="empty">ยังไม่มีโค้ด สร้างได้ด้านล่าง (ระบบไม่ได้ตั้งโปรโมชันใดไว้ล่วงหน้า)</p>{{end}}
+</section>
+<section class="card">
+  <h2>สร้างโค้ดใหม่</h2>
+  <form method="post" action="/admin/promos">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <div class="form-grid">
+      <div class="field"><label>โค้ด (A-Z 0-9)</label><input type="text" name="code" required maxlength="30" style="text-transform:uppercase"></div>
+      <div class="field"><label>ชนิด</label><select name="kind"><option value="percent">ลดเป็น %</option><option value="fixed">ลดเป็นบาท</option></select></div>
+      <div class="field"><label>มูลค่า (% หรือ บาท)</label><input type="text" name="value" required inputmode="decimal"></div>
+      <div class="field wide"><label>คำอธิบาย (ทีมงานเห็น)</label><input type="text" name="description" maxlength="200"></div>
+      <div class="field"><label>ใช้ได้ทั้งหมด (ครั้ง, 0 = ไม่จำกัด)</label><input type="number" name="max_uses" min="0" value="0"></div>
+      <div class="field"><label>ต่อลูกค้า (ครั้ง, 0 = ไม่จำกัด)</label><input type="number" name="per_customer_limit" min="0" value="1"></div>
+      <div class="field"><label>จำนวนคนขั้นต่ำ</label><input type="number" name="min_participants" min="1" value="1"></div>
+      <div class="field"><label>เริ่ม</label><input type="date" name="valid_from"></div>
+      <div class="field"><label>สิ้นสุด</label><input type="date" name="valid_until"></div>
+      <div class="field"><label>แคมเปญ (utm_campaign)</label><input type="text" name="campaign" maxlength="100"></div>
+      <div class="field"><label>โค้ดแนะนำเพื่อน: เบอร์ลูกค้าผู้แนะนำ</label><input type="tel" name="referrer_phone" maxlength="20"></div>
+    </div>
+    <fieldset style="margin-top:12px"><legend>ใช้ได้เฉพาะสินค้า (ไม่เลือก = ทุกตั๋ว)</legend><div class="checks">{{range $d.Products}}<label class="check"><input type="checkbox" name="product_ids" value="{{.ID}}"> {{.NameTH}}</label>{{end}}</div></fieldset>
+    <button class="btn btn--primary" style="margin-top:12px">สร้างโค้ด</button>
+  </form>
+</section>
+{{end}}

@@ -1,0 +1,151 @@
+{{define "main"}}{{$L := .L}}{{$d := .Data}}
+<section class="hero" aria-labelledby="hero-title">
+  <div class="wrap">
+    <div class="sun" aria-hidden="true"></div>
+    <div class="hero-copy">
+      <h1 id="hero-title">{{if eq $L "en"}}<span class="line">Today,</span><span class="line">just come and rest.</span>{{else}}<span class="line">วันนี้</span><span class="line">แค่มาพัก</span>{{end}}</h1>
+      <p class="lede">{{$L.T "hero.lead"}}</p>
+      <div class="hero-cta">
+        <a class="btn btn--primary" href="{{$L.Prefix}}/book">{{$L.T "nav.book"}}</a>
+        <a class="btn" href="{{$L.Prefix}}/pricing">{{$L.T "hero.cta2"}}</a>
+      </div>
+      {{with .HoursLine}}<p class="hero-hours">{{template "ico-clock"}}<span>{{.}}</span></p>{{end}}
+      <div class="next">
+        <h2>{{$L.T "hero.next"}}</h2>
+        {{if $d.Upcoming}}
+        <ul class="chips">
+          {{range $d.Upcoming}}<li><a class="chip" href="{{$L.Prefix}}/book?date={{date .StartsAt}}&amp;slot={{.ID}}"><span>{{$L.RelDay .StartsAt}}</span><b>{{hm .StartsAt}}</b><em>{{$L.T "home.slots.left" .Remaining}}</em></a></li>{{end}}
+          <li><a class="chip chip--more" href="{{$L.Prefix}}/book">{{$L.T "hero.more"}}</a></li>
+        </ul>
+        {{else}}<p class="muted">{{$L.T "home.slots.none"}}</p>{{end}}
+      </div>
+    </div>
+    <div class="hero-media">
+      {{template "pic" (dict "Img" (img $d.Hero 0) "Sample" "/static/img/sample-1.svg" "Alt" ($L.Pick "อ่างน้ำเย็นในบรรยากาศสวน (ภาพประกอบ)" "Cold plunge in a garden (illustration)") "L" $L "Class" "pebble")}}
+    </div>
+  </div>
+</section>
+
+<section class="section section--tint" aria-labelledby="exp-title">
+  <div class="wrap">
+    <div class="section-head">
+      <h2 id="exp-title">{{$L.T "home.intro.h"}}</h2>
+      <p>{{$L.T "home.intro.p"}}</p>
+    </div>
+    <div class="exp-list">
+      {{range $i, $e := $d.Catalog.Experiences}}
+      <article class="exp{{if eq $e.Status "coming_soon"}} exp--soon{{end}}">
+        <div class="exp-media">{{template "pic" (dict "Img" (img $d.ExpImages $i) "Sample" (sample $i) "Alt" ($L.Pick $e.NameTH $e.NameEN) "L" $L "Class" "pebble pebble--wide")}}</div>
+        <div>
+          <h3>{{$L.Pick $e.NameTH $e.NameEN}}{{if eq $e.Status "coming_soon"}} <span class="badge badge--sun">{{$L.T "sauna.soon"}}</span>{{end}}</h3>
+          {{if eq $e.Status "active"}}<p class="meta">{{$e.DurationMin}} {{$L.Pick "นาทีต่อรอบ" "minutes per session"}}</p>{{end}}
+          <p class="measure">{{$L.Pick $e.SummaryTH $e.SummaryEN}}</p>
+          {{if eq $e.Status "active"}}<a class="btn btn--sun" href="{{$L.Prefix}}/book">{{$L.T "nav.book"}}</a>{{end}}
+        </div>
+      </article>
+      {{end}}
+    </div>
+  </div>
+</section>
+
+<section class="section" aria-labelledby="why-title">
+  <div class="wrap">
+    <div class="section-head"><h2 id="why-title">{{$L.T "home.why.h"}}</h2></div>
+    <ul class="why">
+      <li><span class="ico">{{template "ico-leaf"}}</span><div><h3>{{$L.T "why.1.h"}}</h3><p>{{$L.T "why.1.p"}}</p></div></li>
+      <li><span class="ico">{{template "ico-sun"}}</span><div><h3>{{$L.T "why.2.h"}}</h3><p>{{$L.T "why.2.p"}}</p></div></li>
+      {{if .Facts.MaxGroup}}<li><span class="ico">{{template "ico-people"}}</span><div><h3>{{$L.T "why.3.h"}}</h3><p>{{$L.T "why.3.p" .Facts.MaxGroup}}</p></div></li>{{end}}
+    </ul>
+  </div>
+</section>
+
+<section class="section section--sage" aria-labelledby="price-title">
+  <div class="wrap">
+    <div class="section-head"><h2 id="price-title">{{$L.T "home.price.h"}}</h2></div>
+    <div class="price-grid">
+      {{range $i, $t := $d.Catalog.Tickets}}
+      <article class="price{{if eq $i 0}} price--feature{{end}}">
+        <h3>{{$L.Pick $t.NameTH $t.NameEN}}</h3>
+        <p class="price-amount">{{baht $t.Price}}<small>{{if eq $t.PriceMode "per_person"}}{{$L.T "price.per"}}{{else}}{{$L.T "price.for" $t.MinParticipants}}{{end}}</small></p>
+        {{with $L.Pick $t.DescTH $t.DescEN}}<p class="price-note">{{.}}</p>{{end}}
+        <a class="btn {{if eq $i 0}}btn--sun{{else}}btn--primary{{end}}" href="{{$L.Prefix}}/book?product={{$t.ID}}">{{$L.T "price.book"}}</a>
+      </article>
+      {{end}}
+      {{range $d.Catalog.Passes}}
+      <article class="price">
+        <h3>{{$L.Pick .NameTH .NameEN}}</h3>
+        <p class="price-amount">{{baht .Price}}</p>
+        <p class="price-note">{{$L.T "price.sessions" .Credits}} · {{if .ValidityDays}}{{$L.T "price.valid" .ValidityDays}}{{else}}{{$L.T "price.novalid"}}{{end}}</p>
+        <a class="btn" href="{{$L.Prefix}}/packages/{{.ID}}">{{$L.T "price.buy"}}</a>
+      </article>
+      {{end}}
+    </div>
+    <p class="mt-m"><a class="link-arrow" href="{{$L.Prefix}}/pricing">{{$L.T "home.price.all"}}</a></p>
+  </div>
+</section>
+
+<section class="section" aria-labelledby="how-title">
+  <div class="wrap">
+    <div class="section-head"><h2 id="how-title">{{$L.T "home.how.h"}}</h2></div>
+    <ol class="steps">
+      <li><div><h3>{{$L.T "how.1.h"}}</h3><p>{{$L.T "how.1.p"}}</p></div></li>
+      <li><div><h3>{{$L.T "how.2.h"}}</h3><p>{{$L.T "how.2.p"}}</p></div></li>
+      <li><div><h3>{{$L.T "how.3.h"}}</h3><p>{{$L.T "how.3.p"}}</p></div></li>
+      <li><div><h3>{{$L.T "how.4.h"}}</h3><p>{{$L.T "how.4.p"}}</p></div></li>
+    </ol>
+  </div>
+</section>
+
+<section class="section section--tint" aria-labelledby="week-title">
+  <div class="wrap">
+    <div class="section-head"><h2 id="week-title">{{$L.T "home.slots.h"}}</h2></div>
+    <div class="week">
+      {{range $d.Week}}
+      {{if eq .Status "closed"}}<div class="day-tile day-tile--closed"><span class="d">{{$L.Weekday .Date}}</span><span class="n">{{.Date.Day}}</span><span class="s">{{$L.T "book.closed"}}</span></div>
+      {{else}}<a class="day-tile day-tile--{{.Status}}" href="{{$L.Prefix}}/book?date={{date .Date}}"><span class="d">{{$L.Weekday .Date}}</span><span class="n">{{.Date.Day}}</span><span class="s">{{if eq .Status "open"}}{{$L.T "home.slots.left" .Remaining}}{{else}}{{$L.T "book.full"}}{{end}}</span></a>{{end}}
+      {{end}}
+    </div>
+  </div>
+</section>
+
+<section class="section" aria-labelledby="gal-title">
+  <div class="wrap">
+    <div class="section-head"><h2 id="gal-title">{{$L.T "home.gallery.h"}}</h2></div>
+    <div class="gallery">
+      {{if $d.Gallery}}{{range $i, $g := $d.Gallery}}{{if lt $i 6}}<figure><img src="/img/{{$g.ID}}" alt="{{$L.Pick $g.AltTH $g.AltEN}}" loading="lazy" decoding="async">{{with $L.Pick $g.AltTH $g.AltEN}}<figcaption>{{.}}</figcaption>{{end}}</figure>{{end}}{{end}}
+      {{else}}{{range $i := seq 5}}<figure><img src="{{sample (add $i 1)}}" alt="" loading="lazy" decoding="async"><span class="sample-tag">{{$L.T "sample.image"}}</span></figure>{{end}}{{end}}
+    </div>
+    <p class="mt-m"><a class="link-arrow" href="{{$L.Prefix}}/gallery">{{$L.T "nav.gallery"}}</a></p>
+  </div>
+</section>
+
+{{if $d.Reviews}}
+<section class="section section--sage" aria-labelledby="rev-title">
+  <div class="wrap">
+    <div class="section-head"><h2 id="rev-title">{{$L.T "home.reviews.h"}}</h2></div>
+    <div class="reviews">
+      {{range $d.Reviews}}
+      <figure class="review">
+        <blockquote>{{.Body}}</blockquote>
+        <figcaption><span class="stars" aria-label="{{.Rating}}/5">{{range seq .Rating}}★{{end}}</span><span>{{.Author}}</span><a href="{{.SourceURL}}" target="_blank" rel="noopener">{{$L.T "home.reviews.src" .Source}}</a></figcaption>
+      </figure>
+      {{end}}
+    </div>
+  </div>
+</section>
+{{end}}
+
+<section class="section" aria-labelledby="loc-title">
+  <div class="wrap loc">
+    {{template "location" .}}
+  </div>
+</section>
+
+<section class="section section--tint" aria-labelledby="faq-title">
+  <div class="wrap">
+    <div class="section-head"><h2 id="faq-title">{{$L.T "nav.faq"}}</h2></div>
+    <div class="faq">{{template "faq-core" .}}</div>
+    <p class="mt-m"><a class="link-arrow" href="{{$L.Prefix}}/faq">{{$L.Pick "ดูคำถามทั้งหมด" "See all questions"}}</a></p>
+  </div>
+</section>
+{{end}}

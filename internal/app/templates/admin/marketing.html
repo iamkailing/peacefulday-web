@@ -1,0 +1,66 @@
+{{define "main"}}{{$d := .Data}}{{$set := $d.Set}}
+<div class="topline"><h1>แคมเปญและการวัดผล</h1></div>
+<div class="grid grid-2">
+  <section class="card">
+    <h2>รหัสติดตามและลิงก์โซเชียล</h2>
+    <form method="post" action="/admin/marketing">
+      <input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="form" value="tracking">
+      <div class="form-grid">
+        <div class="field"><label>Google Tag Manager ID</label><input type="text" name="gtm_id" value="{{$set.Str "gtm_id"}}" placeholder="GTM-XXXXXXX"></div>
+        <div class="field"><label>GA4 Measurement ID</label><input type="text" name="ga4_id" value="{{$set.Str "ga4_id"}}" placeholder="G-XXXXXXXXXX"></div>
+        <div class="field"><label>Meta Pixel ID</label><input type="text" name="meta_pixel_id" value="{{$set.Str "meta_pixel_id"}}"></div>
+        <div class="field"><label>Google Ads Conversion ID</label><input type="text" name="google_ads_id" value="{{$set.Str "google_ads_id"}}" placeholder="AW-XXXXXXXXX"></div>
+        <div class="field"><label>Google Ads Conversion Label</label><input type="text" name="google_ads_label" value="{{$set.Str "google_ads_label"}}"></div>
+        <div class="field"><label>LINE ID</label><input type="text" name="line_id" value="{{$set.Str "line_id"}}" placeholder="@peacefulday"></div>
+        <div class="field wide"><label>Instagram URL</label><input type="url" name="instagram_url" value="{{$set.Str "instagram_url"}}" placeholder="https://"></div>
+        <div class="field wide"><label>Facebook URL</label><input type="url" name="facebook_url" value="{{$set.Str "facebook_url"}}" placeholder="https://"></div>
+        <div class="field wide"><label>TikTok URL</label><input type="url" name="tiktok_url" value="{{$set.Str "tiktok_url"}}" placeholder="https://"></div>
+        <div class="field wide"><label>Google Business Profile URL</label><input type="url" name="google_business_url" value="{{$set.Str "google_business_url"}}" placeholder="https://"></div>
+      </div>
+      <button class="btn btn--primary" style="margin-top:12px">บันทึก</button>
+    </form>
+    <div class="alert alert--info" style="margin-top:14px">
+      <b>กันการนับซ้ำ:</b> ถ้าใส่ GTM ระบบจะส่งเหตุการณ์ (page_view, begin_checkout, purchase) เข้า dataLayer อย่างเดียว ให้ตั้งแท็ก GA4/Ads/Pixel ใน GTM ถ้าไม่ใส่ GTM ระบบจะโหลด GA4, Google Ads และ Meta Pixel ให้เอง · ทุกแท็กโหลดหลังลูกค้ากด ‘อนุญาต’ คุกกี้เท่านั้น · Purchase ใช้รหัสการจองเป็น transaction_id/eventID ทุกช่องทาง
+      <br><b>Meta Conversions API:</b> {{if $d.CAPI}}เปิดอยู่ (ส่งเฉพาะการจองของลูกค้าที่ยอมรับคุกกี้โฆษณา){{else}}ยังไม่เปิด ตั้งค่า META_CAPI_ACCESS_TOKEN ใน environment ของเซิร์ฟเวอร์{{end}}
+    </div>
+  </section>
+  <section class="card">
+    <h2>สร้างลิงก์แคมเปญ (UTM)</h2>
+    <div class="form-grid" data-utm data-base="{{$d.BaseURL}}">
+      <div class="field"><label>หน้าปลายทาง</label><select data-utm-path><option value="/">หน้าแรก</option><option value="/book">หน้าจอง</option><option value="/pricing">ราคา</option></select></div>
+      <div class="field"><label>utm_source</label><input type="text" data-utm-k="utm_source" placeholder="facebook / instagram / google / line"></div>
+      <div class="field"><label>utm_medium</label><input type="text" data-utm-k="utm_medium" placeholder="cpc / social / email"></div>
+      <div class="field"><label>utm_campaign</label><input type="text" data-utm-k="utm_campaign" placeholder="เช่น nov-weekend"></div>
+      <div class="field wide"><label>ลิงก์ที่ได้</label><input type="text" readonly data-utm-out></div>
+    </div>
+    <h2 style="margin-top:20px">แคมเปญ</h2>
+    {{if $d.Campaigns}}<div class="table-wrap"><table><thead><tr><th>ชื่อ</th><th>utm_campaign</th><th>ช่วง</th><th class="num">การจอง</th><th class="num">รายได้</th><th class="num">ค่าโฆษณา</th></tr></thead><tbody>
+      {{range $d.Campaigns}}<tr><td>{{.Name}}</td><td class="mono">{{.UTM}}</td><td class="nowrap"><small>{{if .Starts.Valid}}{{thdate .Starts.Time}}{{end}}{{if .Ends.Valid}} – {{thdate .Ends.Time}}{{end}}</small></td><td class="num">{{.Bookings}}</td><td class="num">{{baht .Revenue}}</td><td class="num">{{baht .Spend}}</td></tr>{{end}}
+    </tbody></table></div>{{else}}<p class="muted">ยังไม่มีแคมเปญ</p>{{end}}
+    <form method="post" action="/admin/marketing" class="form-grid" style="margin-top:12px">
+      <input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="form" value="campaign">
+      <div class="field"><label>ชื่อแคมเปญ</label><input type="text" name="name" required maxlength="120"></div>
+      <div class="field"><label>utm_campaign</label><input type="text" name="utm_campaign" required maxlength="100"></div>
+      <div class="field"><label>เริ่ม</label><input type="date" name="starts_on"></div>
+      <div class="field"><label>สิ้นสุด</label><input type="date" name="ends_on"></div>
+      <div class="field wide"><label>โน้ต</label><input type="text" name="notes" maxlength="500"></div>
+      <div><button class="btn">เพิ่มแคมเปญ</button></div>
+    </form>
+  </section>
+</div>
+<section class="card" style="margin-top:14px">
+  <h2>ค่าโฆษณา (บันทึกเพื่อคำนวณ ROAS)</h2>
+  <form method="post" action="/admin/marketing" class="form-grid">
+    <input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="form" value="spend">
+    <div class="field"><label>วันที่</label><input type="date" name="date" required value="{{date now}}"></div>
+    <div class="field"><label>แหล่ง (utm_source)</label><input type="text" name="source" required placeholder="facebook"></div>
+    <div class="field"><label>แคมเปญ (utm_campaign)</label><input type="text" name="campaign"></div>
+    <div class="field"><label>จำนวนเงิน (บาท)</label><input type="text" name="amount" required inputmode="decimal"></div>
+    <div class="field"><label>โน้ต</label><input type="text" name="note" maxlength="200"></div>
+    <div><button class="btn btn--primary">บันทึก</button></div>
+  </form>
+  {{if $d.Spend}}<div class="table-wrap" style="margin-top:12px"><table><thead><tr><th>วันที่</th><th>แหล่ง</th><th>แคมเปญ</th><th class="num">จำนวน</th><th>โน้ต</th><th></th></tr></thead><tbody>
+    {{range $d.Spend}}<tr><td>{{thdate .Date}}</td><td>{{.Source}}</td><td>{{.Campaign}}</td><td class="num">{{baht .Amount}}</td><td>{{.Note}}</td><td><form method="post" action="/admin/marketing" class="inline-form"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="form" value="spend_delete"><input type="hidden" name="id" value="{{.ID}}"><button class="btn btn--small btn--ghost" data-confirm="ยืนยันลบ">ลบ</button></form></td></tr>{{end}}
+  </tbody></table></div>{{end}}
+</section>
+{{end}}

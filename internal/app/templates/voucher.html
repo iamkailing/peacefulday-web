@@ -1,0 +1,41 @@
+{{define "main"}}{{$L := .L}}{{$d := .Data}}{{$v := $d.V}}
+<section class="section" style="padding-top:clamp(28px,5vw,56px)">
+  <div class="wrap">
+    <article class="ticket">
+      <div class="ticket-top">
+        {{if eq $v.Status "paid"}}
+          <p class="status"><span class="badge badge--ok">{{$L.T "pay.paid"}}</span></p>
+          <h1>{{$L.T "pass.done"}}</h1>
+        {{else if eq $v.Status "pending"}}
+          <p class="status"><span class="badge badge--warn">{{$L.T "pay.pending"}}</span></p>
+          <h1>{{$L.T "conf.pending.h"}}</h1>
+          <p class="muted" id="waiting-voucher">{{$L.T "conf.pending.p"}}</p>
+        {{else}}
+          <p class="status"><span class="badge badge--bad">{{$L.T (printf "pay.%s" $v.Status)}}</span></p>
+          <h1>{{$L.Pick "การซื้อนี้ไม่สำเร็จ" "This purchase didn't go through"}}</h1>
+        {{end}}
+      </div>
+      <div class="ticket-body">
+        {{if eq $v.Status "paid"}}
+        <div class="ticket-qr">
+          <img src="/qr/{{$v.Code}}?s={{$d.QRSig}}" alt="QR {{$v.Code}}" width="220" height="220">
+        </div>
+        <div><p class="muted" style="margin:0">{{$L.T "pass.code"}}</p><p class="ticket-ref" style="margin:0">{{$v.Code}}</p></div>
+        <p>{{$L.T "pass.howuse"}}</p>
+        {{end}}
+        <dl class="kv">
+          <dt>{{$L.Pick "แพ็กเกจ" "Package"}}</dt><dd>{{$L.Pick $v.NameTH $v.NameEN}}</dd>
+          <dt>{{$L.Pick "จำนวนครั้ง" "Sessions"}}</dt><dd>{{$v.Credits}}</dd>
+          {{if $v.Exp.Valid}}<dt>{{$L.Pick "ใช้ได้ถึง" "Valid until"}}</dt><dd>{{$L.DateLong $v.Exp.Time}}</dd>{{end}}
+          {{if $v.GiftTo}}<dt>{{$L.T "pass.giftto"}}</dt><dd>{{$v.GiftTo}}</dd>{{end}}
+          {{if $v.GiftMsg}}<dt>{{$L.T "pass.giftmsg"}}</dt><dd>{{$v.GiftMsg}}</dd>{{end}}
+          <dt>{{$L.T "book.total"}}</dt><dd>{{baht $v.Amount}}</dd>
+          <dt>{{$L.Pick "เลขที่คำสั่งซื้อ" "Order"}}</dt><dd>{{$d.Ref}}</dd>
+        </dl>
+        {{if eq $v.Status "paid"}}<div class="actions"><a class="btn btn--primary" href="{{$L.Prefix}}/book?voucher={{$v.Code}}">{{$L.Pick "จองรอบด้วยบัตรนี้" "Book with this voucher"}}</a><button class="btn" type="button" data-print>{{$L.Pick "พิมพ์ / บันทึก" "Print / save"}}</button></div>{{end}}
+      </div>
+    </article>
+  </div>
+</section>
+{{end}}
+{{define "scripts"}}<script src="{{asset "js/forms.js"}}" defer></script>{{end}}

@@ -1,0 +1,61 @@
+{{define "main"}}{{$L := .L}}
+<header class="page-head">
+  <div class="sun" aria-hidden="true"></div>
+  <div class="wrap"><h1>{{$L.T "nav.privacy"}}</h1></div>
+</header>
+<section class="section" style="padding-top:8px">
+  <div class="wrap prose">
+    {{if eq $L "en"}}
+    <p class="lede">This explains what personal data Peaceful Day collects through this website, why, and the choices you have.</p>
+    <h2>What we collect</h2>
+    <ul>
+      <li>Booking details: name, phone number, email, number of guests, chosen session, and any note you add.</li>
+      <li>Payment status and references from our payment provider. Card numbers are entered on Stripe's page and never reach or stay on our systems.</li>
+      <li>Your marketing preference, if you choose to receive news and offers.</li>
+      <li>Basic website usage: an anonymous visitor ID and the campaign link you arrived from, used to count visits and bookings.</li>
+    </ul>
+    <h2>Why we use it</h2>
+    <ul>
+      <li>To take and manage your booking, send confirmations and reminders, check you in, and help you if something changes.</li>
+      <li>To keep records needed for accounting and to prevent misuse such as duplicate bookings.</li>
+      <li>To send marketing only if you opted in. You can opt out at any time.</li>
+    </ul>
+    <h2>Cookies</h2>
+    <p>Essential cookies keep the site working (security, language, sign-in, your booking session). Analytics and advertising tags (such as Google Analytics or Meta Pixel) only load if you choose "Allow" in the cookie banner. You can change your choice from the link in the footer.</p>
+    <h2>Who we share it with</h2>
+    <ul>
+      <li>Stripe, to process payments.</li>
+      <li>Our email provider, to send booking emails.</li>
+      <li>If you allowed advertising cookies, purchase events may be shared with advertising platforms in hashed form to measure our ads.</li>
+    </ul>
+    <h2>Your rights</h2>
+    <p>You can ask to see, correct or delete your data, or withdraw consent, by calling <a href="tel:{{.Set.Str "phone"}}">{{.Set.Str "phone"}}</a>{{with .Set.Str "email"}} or emailing <a href="mailto:{{.}}">{{.}}</a>{{end}}.</p>
+    {{else}}
+    <p class="lede">หน้านี้อธิบายว่า Peaceful Day เก็บข้อมูลส่วนบุคคลอะไรผ่านเว็บไซต์ เพื่ออะไร และคุณเลือกอะไรได้บ้าง</p>
+    <h2>ข้อมูลที่เราเก็บ</h2>
+    <ul>
+      <li>ข้อมูลการจอง: ชื่อ เบอร์โทร อีเมล จำนวนคน รอบที่เลือก และข้อความที่คุณแจ้งไว้</li>
+      <li>สถานะและเลขอ้างอิงการชำระเงินจากผู้ให้บริการชำระเงิน เลขบัตรกรอกในหน้าของ Stripe และไม่เคยผ่านหรือถูกเก็บในระบบของเรา</li>
+      <li>ความยินยอมรับข่าวสาร ถ้าคุณเลือกรับ</li>
+      <li>ข้อมูลการใช้เว็บไซต์เบื้องต้น: รหัสผู้เข้าชมแบบไม่ระบุตัวตน และลิงก์แคมเปญที่พาคุณมา เพื่อนับจำนวนผู้เข้าชมและการจอง</li>
+    </ul>
+    <h2>เราใช้ข้อมูลเพื่อ</h2>
+    <ul>
+      <li>รับและจัดการการจอง ส่งอีเมลยืนยันและแจ้งเตือน เช็คอิน และติดต่อคุณเมื่อมีการเปลี่ยนแปลง</li>
+      <li>เก็บหลักฐานที่จำเป็นทางบัญชี และป้องกันการใช้งานผิดปกติ เช่น การจองซ้ำ</li>
+      <li>ส่งข่าวสารการตลาด เฉพาะเมื่อคุณยินยอม และยกเลิกได้ทุกเมื่อ</li>
+    </ul>
+    <h2>คุกกี้</h2>
+    <p>คุกกี้ที่จำเป็นช่วยให้เว็บทำงานได้ (ความปลอดภัย ภาษา การเข้าสู่ระบบ และการจองของคุณ) ส่วนเครื่องมือวัดผลและโฆษณา (เช่น Google Analytics หรือ Meta Pixel) จะโหลดเมื่อคุณกด “อนุญาต” ในแถบคุกกี้เท่านั้น เปลี่ยนตัวเลือกได้จากลิงก์ด้านล่างของหน้า</p>
+    <h2>ผู้ที่เราส่งต่อข้อมูลให้</h2>
+    <ul>
+      <li>Stripe เพื่อดำเนินการชำระเงิน</li>
+      <li>ผู้ให้บริการอีเมล เพื่อส่งอีเมลเกี่ยวกับการจอง</li>
+      <li>ถ้าคุณอนุญาตคุกกี้โฆษณา ข้อมูลการซื้ออาจถูกส่งให้แพลตฟอร์มโฆษณาในรูปแบบที่เข้ารหัสทางเดียว (hash) เพื่อวัดผลโฆษณา</li>
+    </ul>
+    <h2>สิทธิของคุณ</h2>
+    <p>ขอดู แก้ไข หรือลบข้อมูล หรือถอนความยินยอมได้ โดยโทร <a href="tel:{{.Set.Str "phone"}}">{{.Set.Str "phone"}}</a>{{with .Set.Str "email"}} หรืออีเมล <a href="mailto:{{.}}">{{.}}</a>{{end}}</p>
+    {{end}}
+  </div>
+</section>
+{{end}}

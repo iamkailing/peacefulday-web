@@ -1,0 +1,43 @@
+{{define "main"}}{{$d := .Data}}{{$c := $d.C}}{{$s := .Staff}}
+<div class="topline"><h1>{{$c.Name}}</h1>{{if $s.Can "bookings.edit"}}<a class="btn btn--primary" href="/admin/bookings/new?{{qs "name" $c.Name "phone" $c.Phone "email" $c.Email}}">+ จองให้ลูกค้าคนนี้</a>{{end}}</div>
+<div class="kpis">
+  <div class="kpi"><span class="label">มาใช้บริการแล้ว</span><span class="value">{{$c.Visits}} ครั้ง</span></div>
+  <div class="kpi"><span class="label">การจองทั้งหมด</span><span class="value">{{$c.Bookings}}</span></div>
+  {{if $s.Can "analytics.revenue"}}<div class="kpi"><span class="label">ยอดใช้จ่ายสุทธิ</span><span class="value">{{baht $c.Spend}}</span></div>{{end}}
+  <div class="kpi"><span class="label">มาล่าสุด</span><span class="value" style="font-size:1.1rem">{{if $c.LastVisit.Valid}}{{thdate $c.LastVisit.Time}}{{else}}–{{end}}</span></div>
+  <div class="kpi"><span class="label">สิทธิ์คงเหลือ</span><span class="value">{{$c.Credits}}</span></div>
+</div>
+<div class="grid grid-12" style="margin-top:14px">
+  <form class="card" method="post" action="/admin/customers/{{$c.ID}}">
+    <h2>ข้อมูลลูกค้า</h2>
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <div class="field"><label for="name">ชื่อ</label><input type="text" id="name" name="name" value="{{$c.Name}}" maxlength="120" {{if not ($s.Can "customers.edit")}}disabled{{end}}></div>
+    <div class="field" style="margin-top:8px"><label for="phone">เบอร์โทร</label><input type="tel" id="phone" name="phone" value="{{$c.Phone}}" maxlength="20" {{if not ($s.Can "customers.edit")}}disabled{{end}}></div>
+    <div class="field" style="margin-top:8px"><label for="email">อีเมล</label><input type="email" id="email" name="email" value="{{$c.Email}}" maxlength="254" {{if not ($s.Can "customers.edit")}}disabled{{end}}></div>
+    <div class="field" style="margin-top:8px"><label for="lang">ภาษา</label><select id="lang" name="lang" {{if not ($s.Can "customers.edit")}}disabled{{end}}><option value="th">ไทย</option><option value="en"{{if eq $c.Lang "en"}} selected{{end}}>อังกฤษ</option></select></div>
+    <div class="field" style="margin-top:8px"><label for="tags">แท็ก (คั่นด้วย ,)</label><input type="text" id="tags" name="tags" value="{{join $c.Tags ", "}}" {{if not ($s.Can "customers.edit")}}disabled{{end}}></div>
+    <div class="field" style="margin-top:8px"><label for="notes">โน้ต (ลูกค้าไม่เห็น)</label><textarea id="notes" name="notes" maxlength="2000" {{if not ($s.Can "customers.edit")}}disabled{{end}}>{{$c.Notes}}</textarea></div>
+    <label class="check" style="margin-top:10px"><input type="checkbox" name="consent"{{if $c.MarketingConsent}} checked{{end}} {{if not ($s.Can "customers.edit")}}disabled{{end}}> ยินยอมรับข่าวสารการตลาด</label>
+    <p class="muted"><small>เปลี่ยนเป็น ‘ยินยอม’ ได้เฉพาะเมื่อลูกค้าแจ้งความยินยอมเอง</small></p>
+    {{if $s.Can "customers.edit"}}<button class="btn btn--primary" style="margin-top:8px">บันทึก</button>{{end}}
+    <p class="muted" style="margin-top:12px"><small>ลูกค้าตั้งแต่ {{thdate $c.CreatedAt}}</small></p>
+  </form>
+  <div>
+    <section class="card">
+      <h2>การจอง</h2>
+      {{if $d.Bookings}}<div class="table-wrap"><table>
+        <thead><tr><th>รอบ</th><th class="num">คน</th><th>สถานะ</th><th>การชำระ</th><th class="num">ยอด</th><th>รหัส</th></tr></thead>
+        <tbody>{{range $d.Bookings}}<tr><td class="nowrap">{{thdate .StartsAt}} {{hm .StartsAt}}</td><td class="num">{{.Participants}}</td><td>{{template "st" .Status}}</td><td>{{template "pay" .PaymentState}}</td><td class="num">{{baht .Total}}</td><td><a class="mono" href="/admin/bookings/{{.Ref}}">{{.Ref}}</a></td></tr>{{end}}</tbody>
+      </table></div>{{else}}<p class="empty">ยังไม่มีการจอง</p>{{end}}
+    </section>
+    <section class="card">
+      <h2>แพ็กเกจและบัตร</h2>
+      {{if $d.Passes}}<div class="table-wrap"><table>
+        <thead><tr><th>บัตร</th><th>รหัส</th><th class="num">เหลือ</th><th>หมดอายุ</th><th>สถานะ</th></tr></thead>
+        <tbody>{{range $d.Passes}}<tr><td>{{.NameTH}}</td><td class="mono">{{.Code}}</td><td class="num">{{sub .CreditsTotal .Used}}/{{.CreditsTotal}}</td><td>{{if .ExpiresAt.Valid}}{{thdate .ExpiresAt.Time}}{{else}}–{{end}}</td><td>{{if eq .Status "active"}}<span class="badge badge--ok">ใช้ได้</span>{{else}}<span class="badge badge--muted">{{.Status}}</span>{{end}}</td></tr>{{end}}</tbody>
+      </table></div>{{else}}<p class="muted">ไม่มี</p>{{end}}
+      {{if $s.Can "passes"}}<a class="btn btn--small" href="/admin/passes?q={{$c.Phone}}">ออกบัตร/สิทธิ์ให้ลูกค้า</a>{{end}}
+    </section>
+  </div>
+</div>
+{{end}}

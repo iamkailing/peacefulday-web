@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>{{.Title}}</title>
+<meta name="csrf" content="{{.CSRF}}">
+<link rel="icon" href="/static/img/favicon.svg" type="image/svg+xml">
+<link rel="preload" href="/static/fonts/anuphan.woff" as="font" type="font/woff" crossorigin>
+<link rel="stylesheet" href="{{asset "css/admin.css"}}">
+<script src="{{asset "js/admin.js"}}" defer></script>
+</head>
+<body>
+{{if .Staff}}
+<div class="shell">
+  <aside class="side" data-side>
+    <div class="side-top">
+      <a class="brand" href="/admin">{{template "logo"}}<span>Peaceful Day</span></a>
+      <button class="menu" type="button" data-side-toggle aria-expanded="false">เมนู</button>
+    </div>
+    <nav aria-label="เมนูผู้ดูแล">
+      {{$n := .Nav}}{{$s := .Staff}}
+      <a href="/admin"{{if eq $n "admin/dashboard"}} aria-current="page"{{end}}>ภาพรวมวันนี้</a>
+      {{if $s.Can "bookings.view"}}<a href="/admin/calendar"{{if eq $n "admin/calendar"}} aria-current="page"{{end}}>ตารางรอบ</a>
+      <a href="/admin/bookings"{{if or (eq $n "admin/bookings") (eq $n "admin/booking")}} aria-current="page"{{end}}>การจอง</a>{{end}}
+      {{if $s.Can "bookings.edit"}}<a href="/admin/bookings/new"{{if eq $n "admin/booking_new"}} aria-current="page"{{end}}>+ สร้างการจอง</a>
+      <a href="/admin/checkin"{{if eq $n "admin/checkin"}} aria-current="page"{{end}}>เช็คอิน</a>{{end}}
+      {{if $s.Can "customers.view"}}<a href="/admin/customers"{{if or (eq $n "admin/customers") (eq $n "admin/customer")}} aria-current="page"{{end}}>ลูกค้า</a>{{end}}
+      {{if or ($s.Can "analytics.revenue") ($s.Can "analytics.marketing")}}<a href="/admin/analytics"{{if eq $n "admin/analytics"}} aria-current="page"{{end}}>รายงานธุรกิจ</a>{{end}}
+      {{if $s.Can "payments"}}<a href="/admin/payments"{{if eq $n "admin/payments"}} aria-current="page"{{end}}>การชำระเงิน</a>{{end}}
+      {{if or ($s.Can "schedule") (or ($s.Can "products") (or ($s.Can "promos") ($s.Can "passes")))}}<p class="grp">ขายและตาราง</p>{{end}}
+      {{if $s.Can "schedule"}}<a href="/admin/schedule"{{if eq $n "admin/schedule"}} aria-current="page"{{end}}>ตารางเปิดรอบ</a>{{end}}
+      {{if $s.Can "products"}}<a href="/admin/products"{{if eq $n "admin/products"}} aria-current="page"{{end}}>สินค้าและราคา</a>{{end}}
+      {{if $s.Can "promos"}}<a href="/admin/promos"{{if eq $n "admin/promos"}} aria-current="page"{{end}}>โค้ดส่วนลด</a>{{end}}
+      {{if $s.Can "passes"}}<a href="/admin/passes"{{if eq $n "admin/passes"}} aria-current="page"{{end}}>แพ็กเกจและบัตร</a>{{end}}
+      {{if $s.Can "marketing"}}<p class="grp">การตลาด</p>
+      <a href="/admin/marketing"{{if eq $n "admin/marketing"}} aria-current="page"{{end}}>แคมเปญและการวัดผล</a>
+      <a href="/admin/content"{{if eq $n "admin/content"}} aria-current="page"{{end}}>เนื้อหาเว็บและ SEO</a>{{end}}
+      <p class="grp">ระบบ</p>
+      {{if $s.Can "settings"}}<a href="/admin/settings"{{if eq $n "admin/settings"}} aria-current="page"{{end}}>ตั้งค่า</a>{{end}}
+      {{if $s.Can "staff"}}<a href="/admin/staff"{{if eq $n "admin/staff"}} aria-current="page"{{end}}>ทีมงานและสิทธิ์</a>{{end}}
+      {{if $s.Can "notifications"}}<a href="/admin/notifications"{{if eq $n "admin/notifications"}} aria-current="page"{{end}}>การแจ้งเตือน</a>{{end}}
+      {{if $s.Can "audit"}}<a href="/admin/audit"{{if eq $n "admin/audit"}} aria-current="page"{{end}}>บันทึกการเปลี่ยนแปลง</a>{{end}}
+      <a href="/admin/account"{{if eq $n "admin/account"}} aria-current="page"{{end}}>บัญชีของฉัน</a>
+      <a href="/" target="_blank" rel="noopener">ดูหน้าเว็บ</a>
+      <form method="post" action="/admin/logout"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit">ออกจากระบบ</button></form>
+    </nav>
+    <div class="who">{{$s.Name}}<br><small>{{$s.RoleName}}</small></div>
+  </aside>
+  <main class="main" id="main">
+    {{if .Demo}}<div class="banner banner--demo" role="note">มีข้อมูลตัวอย่าง (DEMO) อยู่ในระบบ ตัวเลขในรายงานรวมข้อมูลตัวอย่างด้วย ลบได้ด้วยคำสั่ง <code>server -purge-demo</code></div>{{end}}
+    {{if .TestMode}}<div class="banner banner--test" role="note">การชำระเงินอยู่ในโหมดทดสอบ ({{if .Simulated}}ระบบจำลอง{{else}}Stripe test mode{{end}}) ยังไม่มีเงินจริงเข้า</div>{{end}}
+    {{if .Flash}}<div class="alert alert--ok" role="status">{{.Flash}}</div>{{end}}
+    {{if .FlashErr}}<div class="alert alert--bad" role="alert">{{.FlashErr}}</div>{{end}}
+    {{template "main" .}}
+  </main>
+</div>
+{{else}}
+{{template "main" .}}
+{{end}}
+</body>
+</html>

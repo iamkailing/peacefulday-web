@@ -1,0 +1,12 @@
+{{define "main"}}{{$d := .Data}}
+<div class="topline"><h1>บันทึกการเปลี่ยนแปลง</h1></div>
+<form class="filters" method="get" action="/admin/audit" data-autosubmit>
+  <div class="field"><label>ประเภท</label><select name="action"><option value="">ทั้งหมด</option>{{range $k, $v := dict "booking." "การจอง" "payment." "การชำระเงิน" "staff." "ทีมงาน/เข้าระบบ" "settings." "ตั้งค่า" "schedule." "ตาราง" "product." "สินค้า" "promo." "โค้ด" "pass." "บัตร" "export." "ดาวน์โหลดข้อมูล" "customer." "ลูกค้า" "content." "เนื้อหา"}}<option value="{{$k}}"{{if eq ($d.Q.Get "action") $k}} selected{{end}}>{{$v}}</option>{{end}}</select></div>
+</form>
+<section class="card">
+  {{if $d.List}}<div class="table-wrap"><table>
+    <thead><tr><th>เวลา</th><th>ผู้ทำ</th><th>การกระทำ</th><th>รายการ</th><th>รายละเอียด</th><th>IP</th></tr></thead>
+    <tbody>{{range $d.List}}<tr><td class="nowrap">{{datetime .At}}</td><td>{{.Actor}}</td><td class="mono">{{.Action}}</td><td>{{.Entity}} {{.EntityID}}</td><td><span class="mono" style="font-size:.78rem">{{.Detail}}</span></td><td class="faint">{{.IP}}</td></tr>{{end}}</tbody>
+  </table></div>{{else}}<p class="empty">ยังไม่มีบันทึก</p>{{end}}
+</section>
+{{end}}

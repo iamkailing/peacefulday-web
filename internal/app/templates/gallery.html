@@ -1,0 +1,15 @@
+{{define "main"}}{{$L := .L}}{{$d := .Data}}
+<header class="page-head">
+  <div class="sun" aria-hidden="true"></div>
+  <div class="wrap"><h1>{{$L.T "nav.gallery"}}</h1><p class="lede">{{$L.T "home.gallery.h"}}</p></div>
+</header>
+<section class="section" style="padding-top:8px">
+  <div class="wrap">
+    <div class="gallery">
+      {{if $d.Images}}{{range $d.Images}}<figure><img src="/img/{{.ID}}" alt="{{$L.Pick .AltTH .AltEN}}" loading="lazy" decoding="async">{{with $L.Pick .AltTH .AltEN}}<figcaption>{{.}}</figcaption>{{end}}</figure>{{end}}
+      {{else}}{{range $i := seq 6}}<figure><img src="{{sample (add $i 1)}}" alt="" loading="lazy" decoding="async"><span class="sample-tag">{{$L.T "sample.image"}}</span></figure>{{end}}{{end}}
+    </div>
+    {{if not $d.Images}}<p class="note-box mt-m">{{$L.Pick "ภาพในหน้านี้เป็นภาพประกอบตัวอย่าง ภาพจริงของร้านจะแสดงแทนเมื่อทีมงานอัปโหลดในระบบหลังบ้าน" "These are sample illustrations. Real photos of the venue will appear here once they are uploaded in the admin."}}</p>{{end}}
+  </div>
+</section>
+{{end}}

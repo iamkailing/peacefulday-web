@@ -1,0 +1,41 @@
+{{define "main"}}{{$d := .Data}}{{$q := $d.Q}}
+<div class="topline">
+  <h1>การจอง</h1>
+  {{if .Staff.Can "bookings.edit"}}<a class="btn btn--primary" href="/admin/bookings/new">+ สร้างการจอง</a>{{end}}
+  {{if .Staff.Can "customers.export"}}<a class="btn" href="/admin/bookings?{{qs "q" ($q.Get "q") "status" ($q.Get "status") "payment" ($q.Get "payment") "from" ($q.Get "from") "to" ($q.Get "to") "attention" ($q.Get "attention") "format" "csv"}}">ดาวน์โหลด CSV</a>{{end}}
+</div>
+<form class="filters" method="get" action="/admin/bookings" data-autosubmit>
+  <div class="field" style="flex:1 1 220px"><label for="q">ค้นหา</label><input type="search" id="q" name="q" value="{{$q.Get "q"}}" placeholder="ชื่อ เบอร์ อีเมล หรือรหัส PD-"></div>
+  <div class="field"><label for="status">สถานะ</label><select id="status" name="status">
+    <option value="">ทั้งหมด (ยกเว้นหมดเวลา)</option>
+    {{range $k, $v := dict "hold" "รอชำระ" "confirmed" "ยืนยันแล้ว" "checked_in" "เช็คอินแล้ว" "cancelled" "ยกเลิก" "no_show" "ไม่มา" "expired" "หมดเวลาชำระ"}}<option value="{{$k}}"{{if eq ($q.Get "status") $k}} selected{{end}}>{{$v}}</option>{{end}}
+  </select></div>
+  <div class="field"><label for="payment">การชำระ</label><select id="payment" name="payment">
+    <option value="">ทั้งหมด</option>
+    {{range $k, $v := dict "paid" "ชำระแล้ว" "pending" "รอชำระ" "due_at_venue" "เก็บเงินที่ร้าน" "paid_at_venue" "ชำระที่ร้านแล้ว" "refunded" "คืนเงินแล้ว" "partially_refunded" "คืนบางส่วน" "failed" "ไม่สำเร็จ" "none" "ไม่มียอด"}}<option value="{{$k}}"{{if eq ($q.Get "payment") $k}} selected{{end}}>{{$v}}</option>{{end}}
+  </select></div>
+  <div class="field"><label for="from">รอบตั้งแต่</label><input type="date" id="from" name="from" value="{{$q.Get "from"}}"></div>
+  <div class="field"><label for="to">ถึง</label><input type="date" id="to" name="to" value="{{$q.Get "to"}}"></div>
+  <label class="check" style="margin-bottom:10px"><input type="checkbox" name="attention" value="1"{{if eq ($q.Get "attention") "1"}} checked{{end}}> ต้องตรวจสอบ</label>
+  <button class="btn" type="submit">กรอง</button>
+</form>
+<div class="card">
+  {{if $d.List}}
+  <div class="table-wrap"><table>
+    <thead><tr><th>รอบ</th><th>ลูกค้า</th><th class="num">คน</th><th>สถานะ</th><th>การชำระ</th><th class="num">ยอด</th><th>ช่องทาง</th><th>รหัส</th></tr></thead>
+    <tbody>
+    {{range $d.List}}<tr>
+      <td class="nowrap">{{thdate .StartsAt}}<span class="sub">{{hm .StartsAt}}</span></td>
+      <td><a href="/admin/bookings/{{.Ref}}">{{.CustomerName}}</a><span class="sub">{{phone .Phone}}</span>{{with .NeedsAttention}}<span class="sub" style="color:var(--bad)">⚠ {{.}}</span>{{end}}</td>
+      <td class="num">{{.Participants}}</td>
+      <td>{{template "st" .Status}}</td>
+      <td>{{template "pay" .PaymentState}}</td>
+      <td class="num">{{baht .Total}}</td>
+      <td>{{template "channel" .Channel}}{{with .UTMSource}}<span class="sub">{{.}}</span>{{end}}</td>
+      <td><a class="mono" href="/admin/bookings/{{.Ref}}">{{.Ref}}</a></td>
+    </tr>{{end}}
+    </tbody></table></div>
+  {{if eq (len $d.List) 300}}<p class="muted" style="margin-top:10px">แสดง 300 รายการแรก ใช้ตัวกรองเพื่อหาให้แคบลง</p>{{end}}
+  {{else}}<p class="empty">ไม่พบการจองตามเงื่อนไขนี้</p>{{end}}
+</div>
+{{end}}

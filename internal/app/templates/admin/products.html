@@ -1,0 +1,50 @@
+{{define "main"}}{{$d := .Data}}{{$e := $d.Edit}}
+<div class="topline"><h1>สินค้า ราคา และแพ็กเกจ</h1><a class="btn btn--primary" href="/admin/products?edit=0#form">+ เพิ่มสินค้า</a></div>
+<section class="card">
+  <div class="table-wrap"><table>
+    <thead><tr><th>ชื่อ</th><th>ประเภท</th><th class="num">ราคา</th><th>เงื่อนไข</th><th>บนเว็บ</th><th>สถานะ</th><th></th></tr></thead>
+    <tbody>{{range $d.Products}}<tr{{if not .Active}} class="is-dim"{{end}}>
+      <td><b>{{.NameTH}}</b><span class="sub">{{.NameEN}}</span></td>
+      <td>{{if eq .Kind "pass"}}แพ็กเกจ/บัตร {{.Credits}} ครั้ง{{else}}จองรอบ{{end}}<span class="sub">{{.Category}}</span></td>
+      <td class="num">{{baht .Price}}{{if and (eq .Kind "ticket") (eq .PriceMode "per_person")}}<span class="sub">ต่อคน</span>{{else if eq .Kind "ticket"}}<span class="sub">เหมา {{.MinParticipants}}–{{.MaxParticipants}} คน</span>{{end}}</td>
+      <td><small>{{if eq .Kind "ticket"}}{{.MinParticipants}}–{{.MaxParticipants}} คน{{end}}{{if .ValidityDays}} · ใช้ได้ {{.ValidityDays}} วัน{{end}}{{if .AllowedWeekdays}} · เฉพาะ {{range $i, $w := .AllowedWeekdays}}{{if $i}},{{end}}{{weekdayTH $w}}{{end}}{{end}}{{if .StartAfter}} · ตั้งแต่ {{.StartAfter}}{{end}}{{if .AvailableUntil.Valid}} · ถึง {{thdate .AvailableUntil.Time}}{{end}}</small></td>
+      <td>{{if .Public}}แสดง{{else}}<span class="faint">ไม่แสดง</span>{{end}}</td>
+      <td>{{if .Active}}<span class="badge badge--ok">เปิดขาย</span>{{else}}<span class="badge badge--muted">ร่าง/ปิด</span>{{end}}</td>
+      <td><a class="btn btn--small" href="/admin/products?edit={{.ID}}#form">แก้ไข</a></td>
+    </tr>{{end}}</tbody></table></div>
+  <p class="muted" style="margin-top:10px"><small>สินค้าที่เป็น ‘ร่าง’ จะไม่แสดงและขายไม่ได้จนกว่าจะเปิดขาย โปรโมชันใหม่ควรสร้างเป็นร่างก่อน แล้วเปิดขายเมื่ออนุมัติแล้ว</small></p>
+</section>
+
+<section class="card" id="form">
+  <h2>{{if $e}}แก้ไข: {{$e.NameTH}}{{else}}เพิ่มสินค้าใหม่{{end}}</h2>
+  <form method="post" action="/admin/products">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    {{if $e}}<input type="hidden" name="id" value="{{$e.ID}}">{{end}}
+    <div class="form-grid">
+      <div class="field"><label>ประเภท</label><select name="kind"><option value="ticket"{{if and $e (eq $e.Kind "ticket")}} selected{{end}}>จองรอบ (ตั๋ว)</option><option value="pass"{{if and $e (eq $e.Kind "pass")}} selected{{end}}>แพ็กเกจ / บัตรของขวัญ (เครดิต)</option></select></div>
+      <div class="field"><label>หมวด</label><select name="category">{{range $k, $v := dict "single" "รอบเดี่ยว" "group" "คู่/กลุ่ม" "package" "แพ็กเกจหลายครั้ง" "promotion" "โปรโมชัน" "gift" "บัตรของขวัญ" "membership" "สมาชิก" "complimentary" "ฟรี/ชดเชย"}}<option value="{{$k}}"{{if and $e (eq $e.Category $k)}} selected{{end}}>{{$v}}</option>{{end}}</select></div>
+      <div class="field"><label>ชื่อ (ไทย)</label><input type="text" name="name_th" required value="{{if $e}}{{$e.NameTH}}{{end}}"></div>
+      <div class="field"><label>ชื่อ (อังกฤษ)</label><input type="text" name="name_en" required value="{{if $e}}{{$e.NameEN}}{{end}}"></div>
+      <div class="field wide"><label>รายละเอียด (ไทย)</label><textarea name="desc_th">{{if $e}}{{$e.DescTH}}{{end}}</textarea></div>
+      <div class="field wide"><label>รายละเอียด (อังกฤษ)</label><textarea name="desc_en">{{if $e}}{{$e.DescEN}}{{end}}</textarea></div>
+      <div class="field"><label>ราคา (บาท)</label><input type="text" name="price" inputmode="decimal" required value="{{if $e}}{{satang2 $e.Price}}{{end}}"></div>
+      <div class="field"><label>คิดราคา</label><select name="price_mode"><option value="per_person">ต่อคน</option><option value="flat"{{if and $e (eq $e.PriceMode "flat")}} selected{{end}}>เหมาต่อการจอง</option></select></div>
+      <div class="field"><label>จำนวนคนขั้นต่ำ</label><input type="number" name="min_participants" min="1" value="{{if $e}}{{$e.MinParticipants}}{{else}}1{{end}}"></div>
+      <div class="field"><label>จำนวนคนสูงสุดต่อการจอง</label><input type="number" name="max_participants" min="1" max="50" value="{{if $e}}{{$e.MaxParticipants}}{{else}}5{{end}}"></div>
+      <div class="field"><label>จำนวนครั้ง (แพ็กเกจ)</label><input type="number" name="credits" min="0" value="{{if $e}}{{$e.Credits}}{{else}}0{{end}}"></div>
+      <div class="field"><label>อายุการใช้งาน (วัน, 0 = ไม่หมดอายุ)</label><input type="number" name="validity_days" min="0" value="{{if $e}}{{$e.ValidityDays}}{{else}}0{{end}}"></div>
+      <div class="field"><label>ใช้กับประสบการณ์</label><select name="experience_id"><option value="0">ทุกประสบการณ์</option>{{range $d.Exps}}<option value="{{.ID}}"{{if and $e $e.ExperienceID.Valid (eq $e.ExperienceID.Int64 .ID)}} selected{{end}}>{{.NameTH}}</option>{{end}}</select></div>
+      <div class="field"><label>เฉพาะรอบตั้งแต่ (HH:MM)</label><input type="text" name="start_after" placeholder="เช่น 17:00" value="{{if $e}}{{$e.StartAfter}}{{end}}"></div>
+      <div class="field"><label>ขายตั้งแต่</label><input type="date" name="available_from" value="{{if and $e $e.AvailableFrom.Valid}}{{date $e.AvailableFrom.Time}}{{end}}"></div>
+      <div class="field"><label>ขายถึง</label><input type="date" name="available_until" value="{{if and $e $e.AvailableUntil.Valid}}{{date $e.AvailableUntil.Time}}{{end}}"></div>
+      <div class="field"><label>ลำดับแสดง</label><input type="number" name="sort" value="{{if $e}}{{$e.Sort}}{{else}}0{{end}}"></div>
+    </div>
+    <fieldset style="margin-top:12px"><legend>ใช้ได้เฉพาะวัน (ไม่เลือก = ทุกวัน)</legend><div class="checks">{{range $d.Weekdays}}<label class="check"><input type="checkbox" name="weekdays" value="{{.}}"{{if and $e (hasInt $e.AllowedWeekdays .)}} checked{{end}}> {{weekdayTH .}}</label>{{end}}</div></fieldset>
+    <div class="checks" style="margin-top:12px">
+      <label class="check"><input type="checkbox" name="public"{{if or (not $e) $e.Public}} checked{{end}}> แสดงบนเว็บไซต์</label>
+      <label class="check"><input type="checkbox" name="active"{{if and $e $e.Active}} checked{{end}}> เปิดขาย (อนุมัติแล้ว)</label>
+    </div>
+    <div class="btn-row" style="margin-top:14px"><button class="btn btn--primary">บันทึก</button>{{if $e}}<a class="btn btn--ghost" href="/admin/products">ยกเลิก</a>{{end}}</div>
+  </form>
+</section>
+{{end}}

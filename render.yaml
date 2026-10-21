@@ -1,0 +1,51 @@
+# Render Blueprint: one web service + one PostgreSQL database in Singapore (closest region to Bangkok).
+# New → Blueprint → pick this repository. Values marked `sync: false` are asked for on the first deploy.
+services:
+  - type: web
+    name: peacefulday
+    runtime: go
+    region: singapore
+    plan: 0.5c-512mb            # paid (~$7/mo). For a short free trial use: free (sleeps after 15 min idle)
+    buildCommand: go build -trimpath -ldflags "-s -w" -o bin/server ./cmd/server
+    startCommand: ./bin/server
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: APP_ENV
+        value: staging            # staging = test mode with simulated payments. Change to production after Stripe is set up.
+      - key: PAYMENT_PROVIDER
+        value: simulated          # change to stripe after adding the Stripe keys below
+      - key: DATABASE_URL
+        fromDatabase:
+          name: peacefulday-db
+          property: connectionString
+      - key: SESSION_SECRET
+        generateValue: true       # long random secret for signing links and cookies; never share it
+      - key: BOOTSTRAP_OWNER_EMAIL
+        sync: false               # owner's login email for /admin
+      - key: BOOTSTRAP_OWNER_PASSWORD
+        sync: false               # owner's first password (at least 10 characters); change it after logging in
+      - key: STRIPE_SECRET_KEY
+        sync: false               # sk_test_... first, sk_live_... when going live (can be left empty at first)
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false               # whsec_... from the Stripe webhook endpoint (can be left empty at first)
+      - key: SMTP_HOST
+        sync: false               # e.g. smtp.gmail.com (optional; emails are skipped until set)
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SMTP_FROM
+        sync: false               # e.g. Peaceful Day <hello@yourdomain.com>
+      - key: ADMIN_ALERT_EMAIL
+        sync: false               # where new-booking and error alerts go (optional)
+
+databases:
+  - name: peacefulday-db
+    plan: 0.1c-256mb              # paid (~$6/mo, daily backups). Free databases are deleted after 30 days.
+    region: singapore
+    postgresMajorVersion: "16"
+    databaseName: peacefulday
+    user: peacefulday

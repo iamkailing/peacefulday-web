@@ -1,0 +1,95 @@
+{{define "main"}}{{$d := .Data}}{{$r := $d.R}}
+<div class="topline">
+  <h1>รายงานธุรกิจ</h1>
+  <a class="btn" href="/admin/analytics?{{qs "range" $r.Key "from" $r.FromStr "to" $r.ToStr "format" "csv"}}">ดาวน์โหลด CSV รายวัน</a>
+</div>
+<form class="filters" method="get" action="/admin/analytics">
+  <div class="seg" role="group" aria-label="ช่วงเวลา">{{range $d.Presets}}{{if ne .Key "custom"}}<a href="/admin/analytics?range={{.Key}}"{{if eq $r.Key .Key}} aria-current="true"{{end}}>{{.Label}}</a>{{end}}{{end}}</div>
+  <input type="hidden" name="range" value="custom">
+  <div class="field"><label for="from">ตั้งแต่</label><input type="date" id="from" name="from" value="{{$r.FromStr}}"></div>
+  <div class="field"><label for="to">ถึง</label><input type="date" id="to" name="to" value="{{$r.ToStr}}"></div>
+  <button class="btn{{if eq $r.Key "custom"}} btn--primary{{end}}" type="submit">ใช้ช่วงนี้</button>
+</form>
+<p class="muted"><b>{{$r.Label}}</b> ({{$r.Days}} วัน) เทียบกับช่วงก่อนหน้า {{$r.PLabel}} · <span class="kind">วัดจริง</span> = มาจากฐานข้อมูลของระบบ · <span class="kind kind--estimate">ประมาณการ</span> = คำนวณจากสมมติฐาน (มีคำอธิบายใต้ตัวเลข){{if $d.Simulated}} · โหมดทดสอบ: ยอดเงินมาจากการชำระเงินจำลอง{{end}}</p>
+
+{{if $d.CanRev}}
+<h2 class="section-title">รายได้</h2>
+{{template "metrics" $d.RevenueMetrics}}
+<div class="grid grid-21" style="margin-top:14px">
+  <section class="card"><h2>{{$d.RevenueChartTitle}}</h2>{{$d.RevenueChart}}</section>
+  <div>
+    <section class="card"><h2>รายได้ตามสินค้า</h2>{{$d.RevenueByProduct}}<p class="muted" style="margin:8px 0 0"><small>ยอดรับเงินก่อนหักเงินคืน</small></p></section>
+    <section class="card"><h2>ช่องทางชำระเงิน</h2>{{$d.RevenueByMethod}}</section>
+  </div>
+</div>
+{{end}}
+
+<h2 class="section-title">การจองและการใช้ที่นั่ง</h2>
+{{template "metrics" $d.BookingMetrics}}
+<div class="grid grid-2" style="margin-top:14px">
+  <section class="card"><h2>จำนวนลูกค้าต่อวัน</h2>{{$d.GuestsChart}}</section>
+  <section class="card"><h2>อัตราการใช้ที่นั่งตามวันและเวลา</h2><p class="muted" style="margin-top:-6px"><small>เปอร์เซ็นต์ที่นั่งที่ถูกจองของรอบที่เปิดขายในช่วงนี้ ใช้ดูว่ารอบไหนควรเพิ่มหรือลดที่</small></p>{{$d.Heatmap}}</section>
+</div>
+<div class="grid grid-2" style="margin-top:14px">
+  <section class="card"><h2>ช่องทางการจอง</h2>{{$d.Channels}}</section>
+  <section class="card"><h2>แบบที่ลูกค้าจอง (จำนวนคน)</h2>{{$d.ProductMix}}</section>
+</div>
+
+<h2 class="section-title">ลูกค้า</h2>
+{{template "metrics" $d.CustomerMetrics}}
+<section class="card" style="margin-top:14px">
+  <h2>การกลับมาซ้ำตามเดือนที่มาครั้งแรก (Cohort)</h2>
+  {{if $d.Cohorts}}<div class="table-wrap"><table>
+    <thead><tr><th>มาครั้งแรกเดือน</th><th class="num">ลูกค้าใหม่</th><th class="num">กลับมาใน 30 วัน</th><th class="num">ใน 60 วัน</th><th class="num">ใน 90 วัน</th></tr></thead>
+    <tbody>{{range $d.Cohorts}}<tr><td>{{.Month}}</td><td class="num">{{.Customers}}</td><td class="num">{{.R30}}</td><td class="num">{{.R60}}</td><td class="num">{{.R90}}</td></tr>{{end}}</tbody>
+  </table></div>
+  <p class="muted" style="margin:8px 0 0"><small>‘รอข้อมูล’ = ยังไม่ครบระยะเวลาของกลุ่มนั้น จึงยังสรุปไม่ได้</small></p>
+  {{else}}<p class="empty">ยังไม่มีลูกค้าที่มาใช้บริการในช่วง 7 เดือนล่าสุด</p>{{end}}
+</section>
+
+{{if $d.CanMkt}}
+<h2 class="section-title">การตลาด</h2>
+{{template "metrics" $d.MarketingMetrics}}
+<div class="grid grid-2" style="margin-top:14px">
+  <section class="card">
+    <h2>เส้นทางก่อนจอง (Funnel)</h2>
+    <div class="funnel">{{range $d.Funnel}}<div class="funnel-row" tabindex="0" data-tip="{{.Label}}: {{.N}} ({{.Pct}}% ของผู้เข้าชม, {{.Conv}}% จากขั้นก่อน)"><span>{{.Label}}</span><span class="funnel-bar"><i style="width:{{.Pct}}%"></i></span><span class="num">{{.N}} <small class="faint">{{.Pct}}%</small></span></div>{{end}}</div>
+    <p class="muted" style="margin:10px 0 0"><small>นับผู้เข้าชมไม่ซ้ำจากคุกกี้ของเว็บเอง (ไม่ระบุตัวตน) ขั้นสุดท้ายนับจากการจองจริงในระบบ ตัวเลขอาจต่างจาก GA4 ซึ่งนับเฉพาะคนที่กดยอมรับคุกกี้</small></p>
+  </section>
+  <section class="card">
+    <h2>โค้ดส่วนลดที่ใช้</h2>{{$d.Promos}}
+    <h2 style="margin-top:18px">หน้าแคมเปญ (/lp/)</h2>{{$d.Landing}}
+  </section>
+</div>
+<section class="card" style="margin-top:14px">
+  <h2>ที่มาของลูกค้า (UTM / ผู้แนะนำ) และความคุ้มค่าโฆษณา</h2>
+  {{if $d.Sources}}<div class="table-wrap"><table>
+    <thead><tr><th>แหล่งที่มา</th><th>ประเภท</th><th class="num">ผู้เข้าชม</th><th class="num">การจอง</th><th class="num">ลูกค้า (คน)</th><th class="num">มูลค่าการจอง</th><th class="num">ค่าโฆษณา</th><th class="num">ROAS</th><th class="num">ต้นทุน/การจอง</th></tr></thead>
+    <tbody>{{range $d.Sources}}<tr><td>{{.Source}}</td><td>{{.Medium}}</td><td class="num">{{.Visitors}}</td><td class="num">{{.Bookings}}</td><td class="num">{{.Guests}}</td><td class="num">{{baht .Value}}</td><td class="num">{{if .Spend}}{{baht .Spend}}{{else}}–{{end}}</td><td class="num">{{.ROAS}}</td><td class="num">{{.CPA}}</td></tr>{{end}}</tbody>
+  </table></div>
+  <p class="muted" style="margin:8px 0 0"><small>นับแบบคลิกสุดท้าย (last-click) จากลิงก์ UTM หรือเว็บที่ส่งต่อมา ภายใน 30 วันก่อนจอง · ROAS = มูลค่าการจอง ÷ ค่าโฆษณาที่บันทึกในหน้า ‘แคมเปญและการวัดผล’ · ‘direct’ = เข้าเว็บตรงหรือไม่ทราบที่มา</small></p>
+  {{else}}<p class="empty">ยังไม่มีข้อมูลที่มาในช่วงนี้</p>{{end}}
+</section>
+{{if $d.Campaigns}}<section class="card">
+  <h2>แคมเปญ</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>utm_campaign</th><th class="num">การจอง</th><th class="num">มูลค่าการจอง</th><th class="num">ค่าโฆษณา</th><th class="num">ROAS</th><th class="num">ต้นทุน/การจอง</th></tr></thead>
+    <tbody>{{range $d.Campaigns}}<tr><td>{{.Campaign}}</td><td class="num">{{.Bookings}}</td><td class="num">{{baht .Value}}</td><td class="num">{{if .Spend}}{{baht .Spend}}{{else}}–{{end}}</td><td class="num">{{.ROAS}}</td><td class="num">{{.CPA}}</td></tr>{{end}}</tbody>
+  </table></div>
+</section>{{end}}
+<section class="card">
+  <h2>สถานะเครื่องมือวัดผล</h2>
+  <div class="table-wrap"><table><tbody>{{range $d.Tracking}}<tr><td>{{.Name}}</td><td>{{if .On}}<span class="badge badge--ok">ตั้งค่าแล้ว</span>{{else}}<span class="badge badge--muted">ยังไม่ตั้งค่า</span>{{end}}</td><td class="muted"><small>{{.Detail}}</small></td></tr>{{end}}</tbody></table></div>
+</section>
+{{end}}
+
+<section class="card" style="margin-top:14px">
+  <h2>ข้อมูลที่ระบบนี้ไม่มี <span class="kind">ไม่มีข้อมูล</span></h2>
+  <ul class="muted" style="margin:0;padding-left:1.2em">
+    <li>ยอดการมองเห็นโฆษณา คลิก และ CPC อยู่ใน Meta Ads Manager / Google Ads ระบบนี้ไม่ได้ดึงมา (บันทึกค่าโฆษณารายวันเองได้ในหน้า ‘แคมเปญและการวัดผล’ เพื่อคำนวณ ROAS)</li>
+    <li>ลูกค้าที่จองนอกระบบ (เช่น ทักแชทแล้วโอนเงิน) จะไม่ถูกนับ จนกว่าทีมงานจะบันทึกการจองในระบบ</li>
+    <li>ข้อมูลก่อนเริ่มใช้ระบบนี้ (จากชีตเดิม) ยังไม่ได้ย้ายเข้ามา</li>
+  </ul>
+</section>
+<p class="muted"><small>ข้อมูล ณ {{datetime $d.Generated}} (เวลาไทย)</small></p>
+{{end}}

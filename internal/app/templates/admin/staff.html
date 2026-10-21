@@ -1,0 +1,45 @@
+{{define "main"}}{{$d := .Data}}
+<div class="topline"><h1>ทีมงานและสิทธิ์</h1></div>
+<section class="card">
+  <div class="table-wrap"><table>
+    <thead><tr><th>ชื่อ</th><th>ตำแหน่ง</th><th>เข้าระบบล่าสุด</th><th>สถานะ</th><th>แก้ไข</th></tr></thead>
+    <tbody>{{range $d.List}}<tr{{if not .Active}} class="is-dim"{{end}}>
+      <td><b>{{.Name}}</b><span class="sub">{{.Email}}</span></td>
+      <td>{{roleName .Role}}</td>
+      <td class="nowrap">{{if .Last.Valid}}{{datetime .Last.Time}}{{else}}–{{end}}{{if .Locked.Valid}}{{if not (past .Locked.Time)}}<span class="sub" style="color:var(--bad)">ล็อกชั่วคราว</span>{{end}}{{end}}</td>
+      <td>{{if .Active}}<span class="badge badge--ok">ใช้งาน</span>{{else}}<span class="badge badge--muted">ปิด</span>{{end}}</td>
+      <td><details class="more"><summary>แก้ไข</summary>
+        <form method="post" action="/admin/staff" class="form-grid" style="margin-top:8px;min-width:280px">
+          <input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="id" value="{{.ID}}">
+          <div class="field"><label>ชื่อ</label><input type="text" name="name" value="{{.Name}}"></div>
+          <div class="field"><label>ตำแหน่ง</label><select name="role">{{$r := .Role}}{{range $k, $v := $d.Roles}}<option value="{{$k}}"{{if eq $k $r}} selected{{end}}>{{index $v 0}}</option>{{end}}</select></div>
+          <div class="field"><label>ตั้งรหัสผ่านใหม่ (เว้นว่าง = ไม่เปลี่ยน)</label><input type="password" name="password" minlength="10" autocomplete="new-password"></div>
+          <label class="check"><input type="checkbox" name="active"{{if .Active}} checked{{end}}> ใช้งานได้</label>
+          <div><button class="btn btn--small btn--primary">บันทึก</button></div>
+        </form></details></td>
+    </tr>{{end}}</tbody></table></div>
+</section>
+<div class="grid grid-2" style="margin-top:14px">
+  <section class="card">
+    <h2>เพิ่มทีมงาน</h2>
+    <form method="post" action="/admin/staff" class="form-grid">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <div class="field"><label>ชื่อ</label><input type="text" name="name" required maxlength="80"></div>
+      <div class="field"><label>อีเมล (ใช้เข้าสู่ระบบ)</label><input type="email" name="email" required></div>
+      <div class="field"><label>ตำแหน่ง</label><select name="role">{{range $k, $v := $d.Roles}}<option value="{{$k}}"{{if eq $k "front_desk"}} selected{{end}}>{{index $v 0}}</option>{{end}}</select></div>
+      <div class="field"><label>รหัสผ่านเริ่มต้น (10 ตัวขึ้นไป)</label><input type="password" name="password" required minlength="10" autocomplete="new-password"></div>
+      <div><button class="btn btn--primary">เพิ่ม</button></div>
+    </form>
+  </section>
+  <section class="card">
+    <h2>สิทธิ์ของแต่ละตำแหน่ง</h2>
+    <ul class="timeline">
+      <li><time>เจ้าของ / CEO</time><span>ทุกอย่าง รวมถึงจัดการทีมงาน</span></li>
+      <li><time>ผู้จัดการ</time><span>การจองทั้งหมด (รวมเกินความจุ/ฟรี) คืนเงิน ลูกค้า ตาราง สินค้า โค้ด แพ็กเกจ รายงาน การตลาด ตั้งค่า บันทึกระบบ</span></li>
+      <li><time>หน้าร้าน</time><span>ดู/สร้าง/แก้การจอง เช็คอิน ดูและแก้ข้อมูลลูกค้า</span></li>
+      <li><time>การตลาด</time><span>โค้ดส่วนลด รายงานการตลาด แคมเปญ เนื้อหาเว็บและ SEO</span></li>
+      <li><time>การเงิน</time><span>ดูการจองและลูกค้า คืนเงิน รายงานรายได้ การชำระเงิน ดาวน์โหลดข้อมูล</span></li>
+    </ul>
+  </section>
+</div>
+{{end}}

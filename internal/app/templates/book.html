@@ -1,0 +1,97 @@
+{{define "bodyclass"}}has-paybar{{end}}
+{{define "main"}}{{$L := .L}}{{$c := .Data.Config}}
+<header class="page-head" style="padding-bottom:20px">
+  <div class="sun" aria-hidden="true"></div>
+  <div class="wrap">
+    <h1>{{$L.T "nav.book"}}</h1>
+    <p class="lede">{{$L.T "book.h"}}</p>
+  </div>
+</header>
+<section style="padding-bottom:40px">
+  <div class="wrap">
+    <noscript><div class="alert alert--warn">{{template "ico-alert"}}<p>{{$L.Pick "หน้าจองต้องเปิด JavaScript ถ้าจองไม่ได้ โทรหาเราที่" "Booking needs JavaScript. If it doesn't work, call us on"}} {{.Set.Str "phone"}}</p></div></noscript>
+    <div id="book-error" class="alert alert--bad hide" role="alert" tabindex="-1">{{template "ico-alert"}}<p></p></div>
+    <form class="book" id="book" novalidate>
+      <div class="book-main">
+        <div class="step" id="step-ticket">
+          <div class="step-title"><span class="num" aria-hidden="true"></span><h2>{{$L.T "book.step.what"}}</h2></div>
+          <div class="options" id="tickets" role="radiogroup" aria-label="{{$L.T "book.ticket"}}">
+            {{range $i, $t := $c.tickets}}
+            <label class="opt"><input type="radio" name="product" value="{{$t.ID}}"{{if eq $i 0}} checked{{end}}>
+              <span class="t">{{$t.Name}}</span><span class="p">{{$t.PriceText}}</span>{{if $t.Desc}}<span class="d">{{$t.Desc}}</span>{{end}}</label>
+            {{else}}<p class="state">{{$L.Pick "ยังไม่มีรอบเปิดขายตอนนี้" "Nothing is open for booking right now."}}</p>{{end}}
+          </div>
+        </div>
+
+        <div class="step" id="step-date">
+          <div class="step-title"><span class="num" aria-hidden="true"></span><h2>{{$L.T "book.date"}}</h2></div>
+          <p class="month-label" id="month-label" aria-live="polite"></p>
+          <div class="dates" id="dates" role="group" aria-label="{{$L.T "book.date"}}"><div class="skeleton" style="width:100%"><i></i><i></i><i></i><i></i></div></div>
+        </div>
+
+        <div class="step" id="step-time">
+          <div class="step-title"><span class="num" aria-hidden="true"></span><h2>{{$L.T "book.time"}}</h2></div>
+          <div id="times" aria-live="polite"><p class="state">{{$L.T "book.pickdate"}}</p></div>
+        </div>
+
+        <div class="step" id="step-people">
+          <div class="step-title"><span class="num" aria-hidden="true"></span><h2>{{$L.T "book.people"}}</h2></div>
+          <div class="qty-row">
+            <div class="qty" role="group" aria-label="{{$L.T "book.people"}}">
+              <button type="button" id="qty-minus" aria-label="{{$L.Pick "ลดจำนวนคน" "Fewer guests"}}">−</button>
+              <output id="qty" aria-live="polite">1</output>
+              <button type="button" id="qty-plus" aria-label="{{$L.Pick "เพิ่มจำนวนคน" "More guests"}}">+</button>
+            </div>
+            <span class="hint" id="qty-hint"></span>
+          </div>
+        </div>
+
+        <div class="step" id="step-details">
+          <div class="step-title"><span class="num" aria-hidden="true"></span><h2>{{$L.T "book.step.who"}}</h2></div>
+          <div class="field" data-field="name"><label for="f-name">{{$L.T "book.name"}}</label><input type="text" id="f-name" name="name" autocomplete="name" maxlength="120" required><span class="err" hidden></span></div>
+          <div class="row-2">
+            <div class="field" data-field="phone"><label for="f-phone">{{$L.T "book.phone"}}</label><input type="tel" id="f-phone" name="phone" autocomplete="tel" inputmode="tel" maxlength="20" required placeholder="08x-xxx-xxxx"><span class="err" hidden></span></div>
+            <div class="field" data-field="email"><label for="f-email">{{$L.T "book.email"}}</label><input type="email" id="f-email" name="email" autocomplete="email" inputmode="email" maxlength="254" required><span class="err" hidden></span></div>
+          </div>
+          <div class="field"><label for="f-note">{{$L.T "book.note"}}</label><textarea id="f-note" name="note" maxlength="500" rows="2"></textarea></div>
+          <details class="codes" id="codes"{{if or $c.prePromo $c.preVoucher}} open{{end}}>
+            <summary>{{$L.Pick "มีโค้ดส่วนลด หรือรหัสแพ็กเกจ/บัตรของขวัญ" "Have a discount code or voucher?"}}</summary>
+            <div class="field" data-field="promo" style="margin-top:10px"><label for="f-promo">{{$L.T "book.promo"}}</label>
+              <div class="code-row"><input type="text" id="f-promo" name="promo" autocomplete="off" autocapitalize="characters" maxlength="30" value="{{$c.prePromo}}"><button class="btn btn--small" type="button" data-apply>{{$L.T "book.apply"}}</button></div><span class="err" hidden></span></div>
+            <div class="field" data-field="voucher"><label for="f-voucher">{{$L.T "book.voucher"}}</label>
+              <div class="code-row"><input type="text" id="f-voucher" name="voucher" autocomplete="off" autocapitalize="characters" maxlength="30" value="{{$c.preVoucher}}" placeholder="PDV-XXXX-XXXX"><button class="btn btn--small" type="button" data-apply>{{$L.T "book.apply"}}</button></div><span class="err" hidden></span></div>
+          </details>
+          <label class="check" data-field="health"><input type="checkbox" id="f-health" name="health"><span>{{$L.T "book.health"}}</span></label>
+          <label class="check" data-field="agree"><input type="checkbox" id="f-agree" name="agree"><span>{{safe ($L.T "book.agree" $c.terms $c.cancel)}}</span></label>
+          <label class="check"><input type="checkbox" id="f-consent" name="consent"><span>{{$L.T "book.consent"}}</span></label>
+        </div>
+      </div>
+
+      <aside class="book-side" aria-labelledby="sum-title">
+        <div class="summary">
+          <h2 id="sum-title">{{$L.T "book.summary"}}</h2>
+          <dl class="sum-lines" id="sum-lines">
+            <div><dt>{{$L.T "book.ticket"}}</dt><dd data-sum="ticket">–</dd></div>
+            <div><dt>{{$L.T "book.date"}}</dt><dd data-sum="date">–</dd></div>
+            <div><dt>{{$L.T "book.time"}}</dt><dd data-sum="time">–</dd></div>
+            <div><dt>{{$L.T "book.people"}}</dt><dd data-sum="people">1</dd></div>
+            <div><dt>{{$L.T "book.subtotal"}}</dt><dd data-sum="subtotal">–</dd></div>
+            <div class="hide" data-row="discount"><dt>{{$L.T "book.discount"}}</dt><dd data-sum="discount"></dd></div>
+            <div class="hide" data-row="credits"><dt data-sum="credits-label">{{$L.Pick "ใช้สิทธิ์จากบัตร" "Voucher credits"}}</dt><dd data-sum="credits"></dd></div>
+          </dl>
+          <div class="sum-total"><span>{{$L.T "book.total"}}</span><b data-sum="total">–</b></div>
+          <button class="btn btn--primary btn--block submit-desktop" type="submit" data-submit>{{$L.T "book.paynow"}}</button>
+          <p class="paynote">{{template "ico-lock"}}<span>{{$L.T "book.payinfo"}} {{$L.T "book.holdinfo" $c.hold}}</span></p>
+          {{if $c.simulated}}<p class="paynote">{{template "ico-info"}}<span>{{$L.T "book.simnote"}}</span></p>{{end}}
+        </div>
+      </aside>
+    </form>
+  </div>
+</section>
+<div class="paybar" id="paybar">
+  <div class="tot"><small>{{$L.T "book.total"}}</small><b data-sum="total">–</b></div>
+  <button class="btn btn--primary" type="submit" form="book" data-submit>{{$L.T "book.paynow"}}</button>
+</div>
+<script id="book-config" type="application/json">{{json $c}}</script>
+{{end}}
+{{define "scripts"}}<script src="{{asset "js/book.js"}}" defer></script>{{end}}

@@ -1,0 +1,61 @@
+{{define "main"}}{{$L := .L}}
+<header class="page-head">
+  <div class="sun" aria-hidden="true"></div>
+  <div class="wrap"><h1>{{$L.T "nav.terms"}}</h1></div>
+</header>
+<section class="section" style="padding-top:8px">
+  <div class="wrap prose">
+    {{if eq $L "en"}}
+    <h2>Bookings</h2>
+    <ul>
+      <li>Your place is held for {{.Set.Int "hold_minutes"}} minutes while you pay. If payment isn't completed in that time, the hold is released automatically.</li>
+      <li>A booking is confirmed only after the payment provider confirms your payment (or when our staff create a booking for you). You'll receive a booking reference and a QR code.</li>
+      <li>Please arrive 10–15 minutes before your session.</li>
+      <li>One booking can include several guests. The person booking is responsible for sharing these terms with their group.</li>
+    </ul>
+    <h2>Health and safety</h2>
+    <ul>
+      <li>Cold water immersion may not be suitable for people with heart conditions, uncontrolled high blood pressure, or during pregnancy. When booking, you confirm that you and your guests are fit to take part, or have checked with a doctor.</li>
+      <li>Please follow our team's instructions at the venue, and tell them straight away if you feel unwell.</li>
+    </ul>
+    <h2>Prices and payment</h2>
+    <ul>
+      <li>Prices are in Thai baht and shown before you pay. Online payments are processed by Stripe; we never see or store your card number.</li>
+      <li>Discount codes and vouchers are subject to the conditions shown when they're applied.</li>
+    </ul>
+    <h2>Packages and gift vouchers</h2>
+    <ul>
+      <li>Each package or voucher shows how many sessions it includes and how long it's valid. Use the code when you book.</li>
+      <li>Unused credits expire at the end of the validity period.</li>
+    </ul>
+    <h2>Changes and cancellations</h2>
+    <p>See our <a href="/en/cancellation">cancellation and refund policy</a>.</p>
+    {{else}}
+    <h2>การจอง</h2>
+    <ul>
+      <li>ระบบจะกันที่ไว้ให้ {{.Set.Int "hold_minutes"}} นาทีระหว่างชำระเงิน ถ้าชำระไม่สำเร็จในเวลานั้น ที่จะถูกปล่อยให้คนอื่นอัตโนมัติ</li>
+      <li>การจองจะยืนยันเมื่อผู้ให้บริการชำระเงินยืนยันการชำระแล้วเท่านั้น (หรือเมื่อทีมงานสร้างการจองให้) คุณจะได้รับรหัสการจองและ QR</li>
+      <li>แนะนำมาก่อนเวลา 10–15 นาที</li>
+      <li>การจองหนึ่งครั้งมีผู้ใช้บริการได้หลายคน ผู้จองควรแจ้งเงื่อนไขนี้ให้ทุกคนในกลุ่มทราบ</li>
+    </ul>
+    <h2>สุขภาพและความปลอดภัย</h2>
+    <ul>
+      <li>การแช่น้ำเย็นอาจไม่เหมาะกับผู้มีโรคหัวใจ ความดันโลหิตสูงที่ยังควบคุมไม่ได้ หรือผู้ที่ตั้งครรภ์ เมื่อจอง คุณยืนยันว่าคุณและผู้ร่วมจองพร้อมใช้บริการ หรือได้ปรึกษาแพทย์แล้ว</li>
+      <li>กรุณาทำตามคำแนะนำของทีมงานที่ร้าน และบอกทีมงานทันทีถ้ารู้สึกไม่สบาย</li>
+    </ul>
+    <h2>ราคาและการชำระเงิน</h2>
+    <ul>
+      <li>ราคาเป็นเงินบาท และแสดงก่อนชำระเงินทุกครั้ง การชำระออนไลน์ดำเนินการโดย Stripe ร้านไม่เห็นและไม่เก็บเลขบัตรของคุณ</li>
+      <li>โค้ดส่วนลดและบัตรของขวัญเป็นไปตามเงื่อนไขที่แสดงตอนใช้</li>
+    </ul>
+    <h2>แพ็กเกจและบัตรของขวัญ</h2>
+    <ul>
+      <li>แต่ละแพ็กเกจหรือบัตรแสดงจำนวนครั้งและระยะเวลาใช้งาน ใช้รหัสบัตรตอนจองรอบ</li>
+      <li>สิทธิ์ที่ไม่ได้ใช้จะหมดอายุเมื่อครบระยะเวลาใช้งาน</li>
+    </ul>
+    <h2>การเปลี่ยนแปลงและการยกเลิก</h2>
+    <p>ดู<a href="/cancellation">นโยบายยกเลิกและคืนเงิน</a></p>
+    {{end}}
+  </div>
+</section>
+{{end}}

@@ -1,0 +1,30 @@
+{{define "main"}}{{$d := .Data}}{{$set := $d.Set}}{{$cfg := $d.Cfg}}
+<div class="topline"><h1>ตั้งค่า</h1></div>
+<div class="grid grid-21">
+  <form class="card" method="post" action="/admin/settings">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <div class="form-grid">
+      {{range $d.Fields}}
+      {{if eq .Kind "bool"}}<label class="check field wide"><input type="checkbox" name="{{.Key}}"{{if $set.Bool .Key}} checked{{end}}> {{.Label}}</label>
+      {{else if eq .Kind "textarea"}}<div class="field wide"><label for="s-{{.Key}}">{{.Label}}</label><textarea id="s-{{.Key}}" name="{{.Key}}" rows="5">{{$set.Str .Key}}</textarea>{{with .Help}}<span class="hint">{{.}}</span>{{end}}</div>
+      {{else if hasPrefix .Kind "select:"}}<div class="field"><label for="s-{{.Key}}">{{.Label}}</label><select id="s-{{.Key}}" name="{{.Key}}">{{$cur := $set.Str .Key}}{{range split (slice .Kind 7) ","}}{{$kv := split . "="}}<option value="{{index $kv 0}}"{{if eq $cur (index $kv 0)}} selected{{end}}>{{index $kv 1}}</option>{{end}}</select>{{with .Help}}<span class="hint">{{.}}</span>{{end}}</div>
+      {{else}}<div class="field{{if or (eq .Key "address_th") (eq .Key "address_en") (eq .Key "maps_url")}} wide{{end}}"><label for="s-{{.Key}}">{{.Label}}</label><input type="{{if eq .Kind "int"}}number{{else}}text{{end}}" id="s-{{.Key}}" name="{{.Key}}" value="{{$set.Str .Key}}">{{with .Help}}<span class="hint">{{.}}</span>{{end}}</div>{{end}}
+      {{end}}
+    </div>
+    <button class="btn btn--primary" style="margin-top:14px">บันทึกการตั้งค่า</button>
+  </form>
+  <section class="card">
+    <h2>สถานะระบบ</h2>
+    <dl class="kv">
+      <dt>สภาพแวดล้อม</dt><dd>{{$cfg.Env}}</dd>
+      <dt>ที่อยู่เว็บ</dt><dd class="mono">{{$cfg.BaseURL}}</dd>
+      <dt>การชำระเงิน</dt><dd>{{$cfg.Payment}}{{if $.TestMode}} <span class="badge badge--warn">ทดสอบ</span>{{else}} <span class="badge badge--ok">ใช้งานจริง</span>{{end}}</dd>
+      <dt>อีเมล (SMTP)</dt><dd>{{if $cfg.SMTP}}<span class="badge badge--ok">ตั้งค่าแล้ว</span>{{else}}<span class="badge badge--warn">ยังไม่ตั้ง</span> อีเมลจะถูกข้าม{{end}}</dd>
+      <dt>แจ้งเตือนเจ้าของ</dt><dd>{{if $cfg.AdminAlert}}{{$cfg.AdminAlert}}{{else}}<span class="faint">ยังไม่ตั้ง</span>{{end}}</dd>
+      <dt>Meta CAPI</dt><dd>{{if $cfg.CAPI}}เปิด{{else}}<span class="faint">ปิด</span>{{end}}</dd>
+      <dt>LINE OA</dt><dd>{{if $cfg.LINE}}มี token (ยังไม่ส่งข้อความ ระบบรองรับในเฟสถัดไป){{else}}<span class="faint">ยังไม่เชื่อม (เฟสถัดไป)</span>{{end}}</dd>
+    </dl>
+    <p class="muted" style="margin-top:12px"><small>ค่าในกล่องนี้ (กุญแจ Stripe, SMTP, ฯลฯ) ตั้งผ่าน Environment Variables ของเซิร์ฟเวอร์เท่านั้น เพื่อความปลอดภัย ดูวิธีใน README</small></p>
+  </section>
+</div>
+{{end}}

@@ -1,0 +1,47 @@
+{{define "location"}}{{$L := .L}}
+<div>
+  <div class="section-head">
+    <h2 id="loc-title">{{$L.T "home.loc.h"}}</h2>
+    <p>{{$L.Pick (.Set.Str "address_th") (.Set.Str "address_en")}}</p>
+  </div>
+  <ul class="dir">
+    <li><span class="ico">{{template "ico-train"}}</span><div><h3>{{$L.T "dir.bts.h"}}</h3><p>{{$L.T "dir.bts"}}</p></div></li>
+    <li><span class="ico">{{template "ico-car"}}</span><div><h3>{{$L.T "dir.car.h"}}</h3><p>{{$L.T "dir.car"}}</p></div></li>
+    {{with .HoursLine}}<li><span class="ico">{{template "ico-clock"}}</span><div><h3>{{$L.T "dir.hours"}}</h3><p>{{.}}</p></div></li>{{end}}
+  </ul>
+  <div class="loc-actions">
+    {{with .Set.Str "maps_url"}}<a class="btn btn--primary" href="{{.}}" target="_blank" rel="noopener">{{template "ico-pin"}}{{$L.T "dir.open"}}</a>{{end}}
+    {{with .Set.Str "phone"}}<a class="btn" href="tel:{{.}}">{{template "ico-phone"}}{{$L.T "dir.call"}} {{.}}</a>{{end}}
+  </div>
+</div>
+<div class="map" data-map="https://www.google.com/maps?q={{.Set.Str "maps_query"}}&amp;output=embed" data-map-title="{{$L.Pick "แผนที่ Peaceful Day" "Map to Peaceful Day"}}">
+  <div class="map-placeholder">
+    <img src="/static/img/map-sketch.svg" alt="" aria-hidden="true">
+    <button class="btn" type="button" data-map-load>{{$L.Pick "แสดงแผนที่ Google" "Show Google map"}}</button>
+  </div>
+</div>
+{{end}}
+
+{{define "faq-core"}}{{$L := .L}}
+<details><summary>{{$L.Pick "ไม่เคยแช่น้ำเย็นมาก่อน มาได้ไหม" "I've never done an ice bath. Can I come?"}}</summary>
+  <div class="ans"><p>{{$L.Pick "ได้แน่นอน ครั้งแรกก็มาได้ เริ่มแช่สั้น ๆ ตามที่ร่างกายไหว ไม่ต้องฝืน" "Of course. Plenty of people come for their first time. Start with a short plunge and go at your body's pace."}}</p></div></details>
+<details><summary>{{$L.Pick "ต้องเตรียมอะไรมาบ้าง" "What should I bring?"}}</summary>
+  <div class="ans"><p>{{$L.T "how.2.p"}} {{$L.T "conf.arrive"}}</p></div></details>
+<details><summary>{{$L.Pick "จ่ายเงินยังไง และจะรู้ได้ยังไงว่าจองสำเร็จ" "How do I pay, and how do I know I'm booked?"}}</summary>
+  <div class="ans"><p>{{$L.Pick "จ่ายออนไลน์ด้วย PromptPay หรือบัตรเครดิต/เดบิต ผ่านหน้าชำระเงินที่ปลอดภัยของ Stripe ระบบจะยืนยันการจองหลังได้รับการยืนยันการชำระเงินจากผู้ให้บริการเท่านั้น จากนั้นคุณจะได้รหัสการจองและ QR สำหรับเช็คอินที่หน้าร้าน" "Pay online by PromptPay or credit/debit card on Stripe's secure payment page. Your booking is confirmed once the payment provider confirms the payment, and you get a booking reference and a QR code to check in at the front desk."}}</p></div></details>
+<details><summary>{{$L.Pick "เลื่อนหรือยกเลิกได้ไหม" "Can I reschedule or cancel?"}}</summary>
+  <div class="ans"><p>{{.PolicyLine}}</p><p><a href="{{$L.Prefix}}/cancellation">{{$L.T "nav.cancel"}}</a></p></div></details>
+{{end}}
+
+{{define "faq-more"}}{{$L := .L}}
+<details><summary>{{$L.Pick "มีข้อควรระวังด้านสุขภาพไหม" "Are there any health precautions?"}}</summary>
+  <div class="ans"><p>{{$L.Pick "การแช่น้ำเย็นอาจไม่เหมาะกับผู้ที่มีโรคหัวใจ ความดันโลหิตสูงที่ยังควบคุมไม่ได้ หรือผู้ที่ตั้งครรภ์ ถ้ามีโรคประจำตัวหรือไม่แน่ใจ กรุณาปรึกษาแพทย์ก่อนจอง และบอกทีมงานเมื่อมาถึง" "Cold water immersion may not be suitable if you have a heart condition, uncontrolled high blood pressure, or are pregnant. If you have a medical condition or aren't sure, please check with your doctor before booking and tell our team when you arrive."}}</p></div></details>
+<details><summary>{{$L.Pick "มากันเป็นกลุ่มได้ไหม" "Can we come as a group?"}}</summary>
+  <div class="ans"><p>{{if .Facts.MaxGroup}}{{$L.Pick "ได้ เลือกจำนวนคนได้ในขั้นตอนจอง แต่ละรอบรับได้ไม่เกิน" "Yes. Choose the number of guests when you book. Each session takes up to"}} {{.Facts.MaxGroup}} {{$L.Pick "คน ถ้าต้องการจองทั้งรอบหรือมาเป็นกลุ่มใหญ่ โทรหาเราได้เลย" "people. For a private session or a larger group, please call us."}}{{else}}{{$L.Pick "ได้ โทรหาเราเพื่อจัดรอบให้" "Yes, please call us and we'll arrange it."}}{{end}}</p></div></details>
+{{if .Set.Bool "show_sauna_coming_soon"}}<details><summary>{{$L.Pick "ซาวน่าเปิดหรือยัง" "Is the sauna open?"}}</summary>
+  <div class="ans"><p>{{$L.Pick "ตอนนี้ยังไม่เปิดให้บริการซาวน่า ถ้าเปิดแล้วเราจะประกาศให้ทราบอีกครั้ง ระหว่างนี้มาลองใช้บริการ Ice Bath ได้เลย" "Not yet. We'll announce it when it opens. In the meantime, come and try the ice bath."}}</p></div></details>{{end}}
+<details><summary>{{$L.Pick "เดินทางยังไง จอดรถได้ไหม" "How do I get there? Is there parking?"}}</summary>
+  <div class="ans"><p>{{$L.T "dir.bts"}}</p><p>{{$L.T "dir.car"}}</p></div></details>
+<details><summary>{{$L.Pick "ดูหรือแก้การจองที่ไหน" "Where can I see or change my booking?"}}</summary>
+  <div class="ans"><p>{{$L.Pick "ใช้ลิงก์ในอีเมลยืนยัน หรือไปที่หน้า" "Use the link in your confirmation email, or go to"}} <a href="{{$L.Prefix}}/my-bookings">{{$L.T "nav.my"}}</a> {{$L.Pick "แล้วค้นด้วยรหัสการจองและเบอร์โทร" "and look it up with your booking reference and phone number."}}</p></div></details>
+{{end}}
