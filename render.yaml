@@ -5,7 +5,7 @@ services:
     name: peacefulday
     runtime: go
     region: singapore
-    plan: 0.5c-512mb            # paid (~$7/mo). For a short free trial use: free (sleeps after 15 min idle)
+    plan: free                  # free trial: sleeps after 15 min idle. For real use switch to 0.5c-512mb (~$7/mo)
     buildCommand: go build -trimpath -ldflags "-s -w" -o bin/server ./cmd/server
     startCommand: ./bin/server
     healthCheckPath: /healthz
@@ -44,7 +44,7 @@ services:
 
 databases:
   - name: peacefulday-db
-    plan: 0.1c-256mb              # paid (~$6/mo, daily backups). Free databases are deleted after 30 days.
+    plan: free                    # free trial: deleted after 30 days, no backups. For real use switch to 0.1c-256mb (~$6/mo)
     region: singapore
     postgresMajorVersion: "16"
     databaseName: peacefulday
