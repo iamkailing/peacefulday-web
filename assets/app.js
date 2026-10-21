@@ -351,9 +351,11 @@
     if (/captcha/i.test(msg)) return P("ตรวจสอบว่าไม่ใช่บอทไม่ผ่าน ลองใหม่อีกครั้ง", "The robot check didn't pass. Please try again.");
     return P("ทำรายการไม่สำเร็จ ลองใหม่อีกครั้ง", "That didn't work. Please try again.");
   }
+  let pwKeep = ""; // typed password survives a re-render for an error message; never stored
   function bindLoginPanel(after) {
     mountCaptcha();
-    $$("[data-auth-mode]").forEach((b) => b.addEventListener("click", (e) => { e.preventDefault(); const em = $("#au-email"); if (em) R.otpTyped = em.value.trim(); R.authMode = b.dataset.authMode; R.authSent = ""; R.flashErr = ""; render(); }));
+    if ($("#au-pass") && pwKeep) $("#au-pass").value = pwKeep;
+    $$("[data-auth-mode]").forEach((b) => b.addEventListener("click", (e) => { e.preventDefault(); const em = $("#au-email"); if (em) R.otpTyped = em.value.trim(); R.authMode = b.dataset.authMode; R.authSent = ""; pwKeep = ""; R.flashErr = ""; render(); }));
     const form = $("#auth-form");
     if (!form) return;
     form.addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target.tagName === "INPUT") { e.preventDefault(); $("[data-auth-go]").click(); } });
@@ -361,7 +363,7 @@
       e.preventDefault();
       const m = R.authMode || "in";
       const em = $("#au-email").value.trim().toLowerCase(); R.otpTyped = em;
-      const pw = $("#au-pass") ? $("#au-pass").value : "";
+      const pw = $("#au-pass") ? $("#au-pass").value : ""; pwKeep = pw;
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(em)) { R.flashErr = errText({ code: "email" }); render(); return; }
       if (m !== "forgot" && pw.length < (m === "up" ? 8 : 1)) { R.flashErr = m === "up" ? P("ตั้งรหัสผ่านอย่างน้อย 8 ตัว", "Use a password of at least 8 characters.") : P("ใส่รหัสผ่าน", "Please enter your password."); render(); return; }
       if (needCaptcha()) { R.flashErr = P("รอให้ช่องตรวจสอบว่าไม่ใช่บอทขึ้นเครื่องหมายถูกก่อน", "Please wait for the robot check to finish."); render(); return; }
@@ -372,7 +374,7 @@
           const inNow = await custSignUp(em, pw);
           if (!inNow) { R.authSent = P(`สมัครแล้ว กดลิงก์ยืนยันในอีเมลที่ส่งไปที่ ${esc(em)} แล้วจะเข้าสู่ระบบให้อัตโนมัติ`, `Account created. Open the confirmation link we sent to ${esc(em)} and you'll be signed in.`); R.flashErr = ""; render(); return; }
         } else await custSignIn(em, pw);
-        R.flashErr = ""; R.authMode = "in";
+        R.flashErr = ""; R.authMode = "in"; pwKeep = "";
         try { const mb = await rpc("my_bookings", {}, "cust"); if (mb && mb.last) { BK.name = BK.name || mb.last.name; BK.phone = BK.phone || mb.last.phone; } } catch (err) { /* first booking */ }
         if (after) after(); render();
       } catch (err) { R.flashErr = authErr(err.message); render(); }
