@@ -50,6 +50,7 @@
   }
   // customers sign in with an email code; kept apart from the staff session
   const CUST_KEY = "pfd-customer-session";
+  const ME_KEY = "pfd-me"; // the signed-in customer's name and phone, so the form fills itself next time
   let cust = store.get(CUST_KEY);
   const H = { apikey: CFG.key, "Content-Type": "application/json" };
   const keepCust = (j) => { cust = { access_token: j.access_token, refresh_token: j.refresh_token, expires_at: Date.now() + j.expires_in * 1000, email: (j.user && j.user.email) || (cust && cust.email) || "" }; store.set(CUST_KEY, cust); };
@@ -82,7 +83,7 @@
     const r = await fetch(CFG.url + "/auth/v1/user", { method: "PUT", headers: Object.assign({ Authorization: "Bearer " + (await custToken()) }, H), body: JSON.stringify({ password }) });
     if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error_code || j.msg || j.message || "password"); }
   }
-  function custOut() { cust = null; store.del(CUST_KEY); }
+  function custOut() { cust = null; store.del(CUST_KEY); store.del(ME_KEY); }
   // bot check (Cloudflare Turnstile); skipped until a site key is set in config.js
   function mountCaptcha() {
     const el = document.getElementById("captcha");
@@ -168,6 +169,11 @@
   // ---------- state ----------
   const R = { view: "home", flash: "", flashErr: "", busy: false, recovery: !!window.__pfdRecovery, custRecovery: !!window.__pfdCustRecovery };
   let C = null; // shop settings from the database
+  // the 2-person promotion: each pair pays pair_price, anyone left over pays the normal price (same rule as the database)
+  const pairOn = () => Number(C.pair_price) > 0;
+  const priceFor = (n) => (pairOn() ? Math.floor(n / 2) * Number(C.pair_price) + (n % 2) * Number(C.price) : n * Number(C.price));
+  const priceLine = (n) => (pairOn() && n >= 2 ? `${P("โปร 2 คน", "2-person deal")} ${baht(C.pair_price)}${Math.floor(n / 2) > 1 ? ` × ${Math.floor(n / 2)}` : ""}${n % 2 ? ` + ${baht(C.price)}` : ""}` : `${baht(C.price)} × ${n}`);
+  const promoText = () => P(`โปร มา 2 คน ${baht(C.pair_price)} (ปกติ ${baht(C.price * 2)})`, `Come as two for ${baht(C.pair_price)} (usually ${baht(C.price * 2)})`);
   const BK = { people: 2, day: "", hm: "", name: "", phone: "", email: "", note: "", agree: false, health: false, err: "", fieldErr: {} };
   let ME = null; // signed-in staff member
 
@@ -251,7 +257,7 @@
     <p class="eyebrow"><span></span>Ice Bath + Sauna · ${P("สุขุมวิท 62", "Sukhumvit 62")}</p>
     <h1 id="hero-title">${P('<span class="line">วันนี้</span><span class="line">แค่มาพัก</span>', '<span class="line">Today,</span><span class="line">just come and rest.</span>')}</h1>
     <p class="lede">${P("แช่น้ำเย็น อบซาวน่า แล้วพักหายใจช้า ๆ ในสวนกลางสุขุมวิท 62 มาครั้งแรกก็ได้ ไม่ต้องฝืนตัวเอง", "A cold plunge, a warm sauna and slow breathing in a garden off Sukhumvit 62. First-timers welcome; go at your own pace.")}</p>
-    <p class="hero-price"><strong>${baht(C.price)}</strong>${P(`ต่อคน ใช้บริการได้ ${C.duration / 60} ชั่วโมง`, `per person, ${C.duration / 60} hours`)}</p>
+    <p class="hero-price"><strong>${baht(C.price)}</strong>${P(`ต่อคน ใช้บริการได้ ${C.duration / 60} ชั่วโมง`, `per person, ${C.duration / 60} hours`)}</p>${pairOn() ? `<p class="hero-promo">${promoText()}</p>` : ""}
     <div class="hero-cta"><a class="btn btn--primary" href="#book" data-go="book">${P("ดูรอบว่างและจอง", "See times and book")}</a><a class="btn" href="#first" data-go="home#first">${P("มาครั้งแรกทำยังไง", "First time here?")}</a></div>
     <p class="hero-hours">${ICON.clock}<span>${esc(hoursLine())}</span></p>
     <div class="next"><h2>${P("รอบว่างถัดไป", "Next open sessions")}</h2>
@@ -294,6 +300,7 @@
   <div class="price-grid"><article class="price price--feature">
     <h3>${P("Ice Bath + Sauna 1 รอบ", "Ice Bath + Sauna, one session")}</h3>
     <p class="price-amount">${baht(C.price)}<small>${P(" / คน", " / person")}</small></p>
+    ${pairOn() ? `<p class="price-promo"><b>${P("โปร 2 คน", "2-person deal")} ${baht(C.pair_price)}</b> ${P(`ปกติ ${baht(C.price * 2)} มากี่คู่ก็ได้ราคานี้ทุกคู่`, `instead of ${baht(C.price * 2)}, for every pair in your group`)}</p>` : ""}
     <p class="price-note">${P(`ใช้บริการได้ ${C.duration / 60} ชั่วโมง เริ่มรอบใหม่ทุกชั่วโมง ชำระที่ร้าน`, `${C.duration / 60} hours from your start time; sessions start every hour. Pay at the shop.`)}</p>
     <a class="btn btn--primary" href="#book" data-go="book">${P("เลือกจำนวนคนและดูรอบว่าง", "Choose your group and see times")}</a>
   </article></div>
@@ -319,7 +326,7 @@
     return [
       [P("ไม่เคยแช่น้ำเย็นมาก่อน มาได้ไหม", "I've never done an ice bath. Can I come?"), P("ได้ ครั้งแรกเริ่มแช่สั้น ๆ ตามที่ร่างกายไหว ทีมงานอธิบายวิธีให้ก่อนเริ่ม", "Yes. Start with short dips at your own pace; the team explains everything first.")],
       [P("ต้องเตรียมอะไรมา", "What should I bring?"), P("ชุดว่ายน้ำหรือชุดที่เปียกได้ และมาก่อนเวลา 10–15 นาที", "Swimwear or clothes that can get wet. Please arrive 10–15 minutes early.")],
-      [P(`${baht(C.price)} รวมอะไรบ้าง`, `What does ${baht(C.price)} include?`), P(`Ice Bath และ Sauna ใช้ได้ ${C.duration / 60} ชั่วโมงนับจากเวลาที่จอง ต่อคน`, `The ice bath and sauna for ${C.duration / 60} hours from your booked time, per person.`)],
+      [P(`${baht(C.price)} รวมอะไรบ้าง`, `What does ${baht(C.price)} include?`), P(`Ice Bath และ Sauna ใช้ได้ ${C.duration / 60} ชั่วโมงนับจากเวลาที่จอง ต่อคน${pairOn() ? ` มา 2 คนจ่าย ${baht(C.pair_price)}` : ""}`, `The ice bath and sauna for ${C.duration / 60} hours from your booked time, per person.${pairOn() ? ` Two people pay ${baht(C.pair_price)}.` : ""}`)],
       [P("จ่ายเงินยังไง", "How do I pay?"), P("จองออนไลน์แล้วชำระที่ร้านตอนมาถึง รับเงินสด โอน และบัตร", "Book online and pay at the shop when you arrive: cash, transfer or card.")],
       [P("มากันเป็นกลุ่มได้ไหม", "Can we come as a group?"), P(`ได้ รับรอบละไม่เกิน ${C.capacity} คน (เสาร์-อาทิตย์และวันหยุดนักขัตฯ ${C.capacity_weekend || C.capacity} คน) เลือกจำนวนคนตอนจอง ถ้าต้องการจองทั้งรอบหรือกลุ่มใหญ่ โทรหาเรา`, `Yes. Each session takes up to ${C.capacity} people (${C.capacity_weekend || C.capacity} on weekends and public holidays). For a private session or a bigger group, please call us.`)],
       [P("เลื่อนหรือยกเลิกได้ไหม", "Can I move or cancel?"), policyLine()],
@@ -401,6 +408,11 @@
   // ---------- booking: people → day → time → details → confirm ----------
   async function viewBook() {
     if (R.pre) { const [d, h] = R.pre.split("|"); BK.day = d; BK.hm = h; R.pre = ""; }
+    if (cust && !BK.name && !BK.phone) {
+      const me = store.get(ME_KEY);
+      if (me && me.email === cust.email) { BK.name = me.name || ""; BK.phone = me.phone || ""; }
+      else if (!R.meTried) { R.meTried = true; try { const mb = await rpc("my_bookings", {}, "cust"); if (mb && mb.last) { BK.name = mb.last.name || ""; BK.phone = mb.last.phone || ""; } } catch (e) { /* first booking */ } }
+    }
     const from = today(), days = Math.min(Number(C.horizon_days) + 1, 42);
     let avail = [];
     try { avail = await rpc("availability", { p_from: from, p_days: days, p_people: BK.people }); } catch (e) { R.flashErr = errText(e); }
@@ -410,11 +422,11 @@
     if (!BK.day || dayState(BK.day) === "closed") BK.day = list.find((k) => dayState(k) === "open") || "";
     const slots = BK.day && map[BK.day] ? map[BK.day].slots : [];
     if (!slots.some((s) => s.hm === BK.hm && s.ok)) BK.hm = "";
-    const total = BK.people * Number(C.price);
+    const total = priceFor(BK.people);
     const fe = BK.fieldErr;
     const field = (k, label, input) => `<div class="field${fe[k] ? " has-error" : ""}"><label for="f-${k}">${label}</label>${input}${fe[k] ? `<span class="err">${esc(fe[k])}</span>` : ""}</div>`;
     const main = `
-<header class="page-head"><div class="wrap"><h1>${P("จองรอบของคุณ", "Book your session")}</h1><p class="lede">${P(`${baht(C.price)} ต่อคน · ใช้บริการได้ ${C.duration / 60} ชั่วโมง · ชำระที่ร้าน`, `${baht(C.price)} per person · ${C.duration / 60} hours · pay at the shop`)}</p></div></header>
+<header class="page-head"><div class="wrap"><h1>${P("จองรอบของคุณ", "Book your session")}</h1><p class="lede">${P(`${baht(C.price)} ต่อคน${pairOn() ? ` · 2 คน ${baht(C.pair_price)}` : ""} · ใช้บริการได้ ${C.duration / 60} ชั่วโมง · ชำระที่ร้าน`, `${baht(C.price)} per person${pairOn() ? ` · 2 people ${baht(C.pair_price)}` : ""} · ${C.duration / 60} hours · pay at the shop`)}</p></div></header>
 <section style="padding-bottom:40px"><div class="wrap">
   ${flashHTML()}${BK.err ? `<div class="alert alert--bad" role="alert">${ICON.alert}<p>${esc(BK.err)}</p></div>` : ""}
   <form class="book" id="book" novalidate>
@@ -449,7 +461,7 @@
         <div><dt>${P("จำนวน", "People")}</dt><dd>${BK.people} ${P("คน", "")}</dd></div>
         <div><dt>${P("วัน", "Day")}</dt><dd>${BK.day ? esc(dLong(BK.day)) : "–"}</dd></div>
         <div><dt>${P("เวลา", "Time")}</dt><dd>${BK.hm || "–"}</dd></div>
-        <div><dt>${P("ราคา", "Price")}</dt><dd>${baht(C.price)} × ${BK.people}</dd></div>
+        <div><dt>${P("ราคา", "Price")}</dt><dd>${priceLine(BK.people)}</dd></div>
       </dl>
       <div class="sum-total"><span>${P("ยอดชำระที่ร้าน", "Pay at the shop")}</span><b>${baht(total)}</b></div>
       <button class="btn btn--primary btn--block submit-desktop" type="submit"${R.busy ? " disabled" : ""}>${P("ยืนยันการจอง", "Confirm booking")}</button>
@@ -482,6 +494,7 @@
       R.busy = true; render();
       try {
         const res = await rpc("create_booking", { p: { day: BK.day, hm: BK.hm, people: BK.people, name: BK.name, phone: BK.phone, note: BK.note, consent: true } }, "cust");
+        if (cust) store.set(ME_KEY, { email: cust.email, name: BK.name.trim(), phone: BK.phone });
         const mine = store.get("pfd-mine") || []; mine.unshift({ ref: res.ref, token: res.token }); store.set("pfd-mine", mine.slice(0, 10));
         R.busy = false; BK.hm = ""; BK.note = "";
         go("booking", { hashArg: res.ref + "/" + res.token, ref: res.ref, token: res.token, justBooked: true });
@@ -507,7 +520,7 @@
     const moveDays = R.moveOpen ? await (async () => { try { return await rpc("availability", { p_from: today(), p_days: Math.min(Number(C.horizon_days) + 1, 42), p_people: b.people }); } catch (e) { return []; } })() : [];
     const md = R.moveDay && moveDays.find((d) => d.day === R.moveDay);
     return pubLayout(`<section class="section" style="padding-top:clamp(28px,5vw,56px)"><div class="wrap">
-  ${R.justBooked ? `<div class="alert alert--ok" role="status">${ICON.ok}<p>${P("จองเรียบร้อยแล้ว เก็บลิงก์หน้านี้ไว้เพื่อดูหรือแก้การจอง", "You're booked. Keep this page's link to see or change your booking.")}</p></div>` : ""}${flashHTML()}
+  ${R.justBooked ? `<div class="alert alert--ok" role="status">${ICON.ok}<p>${P("จองเรียบร้อยแล้ว ดูการจองทั้งหมด เลื่อน หรือยกเลิกได้ทุกเมื่อที่เมนู", "You're booked. See, move or cancel your bookings any time under")} <a href="#my" data-go="my">${P("การจองของฉัน", "My bookings")}</a>${P(" (เข้าสู่ระบบด้วยอีเมลเดิม)", " (sign in with the same email)")}</p></div>` : ""}${flashHTML()}
   <article class="ticket">
     <div class="ticket-top"><p class="status"><span class="badge ${live ? "badge--ok" : "badge--bad"}">${st}</span></p><h1>${live ? P("แล้วพบกันที่สวน", "See you in the garden") : st}</h1>${live ? `<p class="muted">${P("มาก่อนเวลา 10–15 นาที และเตรียมชุดที่เปียกได้", "Please arrive 10–15 minutes early with clothes that can get wet.")}</p>` : ""}</div>
     <div class="ticket-body">
@@ -774,7 +787,7 @@
     return admLayout(`<div class="topline"><h1>ตั้งค่าร้าน</h1></div>
   ${can ? "" : '<p class="muted">ผู้จัดการหรือเจ้าของเท่านั้นที่แก้ค่าได้</p>'}
   <form class="card" id="setf"><h2>บริการและรอบ</h2>
-    <div class="form-grid">${inp("s-price", "ราคาต่อคน (บาท)", cfg.price, "number", ' min="0"')}${inp("s-cap", "รับต่อรอบ วันธรรมดา (คน)", cfg.capacity, "number", ' min="1"')}${inp("s-capw", "รับต่อรอบ เสาร์-อาทิตย์/นักขัตฯ (คน)", cfg.capacity_weekend || cfg.capacity, "number", ' min="1"')}${inp("s-dur", "ใช้บริการได้ (นาที)", cfg.duration, "number", ' min="10"')}${inp("s-maxg", "จองออนไลน์ได้สูงสุดต่อครั้ง (คน)", cfg.max_group, "number", ' min="1"')}</div>
+    <div class="form-grid">${inp("s-price", "ราคาต่อคน (บาท)", cfg.price, "number", ' min="0"')}${inp("s-pair", "โปร 2 คน (บาท, ใส่ 0 = ปิดโปร)", cfg.pair_price || 0, "number", ' min="0"')}${inp("s-cap", "รับต่อรอบ วันธรรมดา (คน)", cfg.capacity, "number", ' min="1"')}${inp("s-capw", "รับต่อรอบ เสาร์-อาทิตย์/นักขัตฯ (คน)", cfg.capacity_weekend || cfg.capacity, "number", ' min="1"')}${inp("s-dur", "ใช้บริการได้ (นาที)", cfg.duration, "number", ' min="10"')}${inp("s-maxg", "จองออนไลน์ได้สูงสุดต่อครั้ง (คน)", cfg.max_group, "number", ' min="1"')}</div>
     <div class="field"><label for="s-times">เวลาเริ่มแต่ละรอบ (คั่นด้วย ,)</label><input type="text" id="s-times" value="${esc((cfg.times || []).join(", "))}"${can ? "" : " disabled"}></div>
     <fieldset style="margin-top:12px"><legend>หยุดประจำสัปดาห์</legend><div class="checks">${[1, 2, 3, 4, 5, 6, 0].map((d) => `<label class="check"><input type="checkbox" id="s-c${d}" data-closed="${d}"${(cfg.closed || []).includes(d) ? " checked" : ""}${can ? "" : " disabled"}> ${thDays[d]}</label>`).join("")}</div></fieldset>
     <h2 style="margin-top:18px">เงื่อนไขการจอง</h2>
@@ -792,7 +805,7 @@
       if (!times.every((x) => /^([01]\d|2[0-3]):[0-5]\d$/.test(x))) { R.flashErr = "รูปแบบเวลาไม่ถูกต้อง ใช้ HH:MM เช่น 09:00"; render(); return; }
       const num = (id) => Number($(id).value);
       act(async () => {
-        C = Object.assign(C, await rpc("staff_save_settings", { p: { price: num("#s-price"), capacity: num("#s-cap"), capacity_weekend: num("#s-capw"), duration: num("#s-dur"), max_group: num("#s-maxg"), times: Array.from(new Set(times)).sort(), closed: $$("[data-closed]").filter((c) => c.checked).map((c) => Number(c.dataset.closed)), lead_min: num("#s-lead"), horizon_days: num("#s-hor"), cancel_hours: num("#s-cut"), max_moves: num("#s-mm"), phone: $("#s-phone").value.trim(), line: $("#s-line").value.trim(), address_th: $("#s-addr").value.trim(), address_en: $("#s-addren").value.trim(), map_url: $("#s-map").value.trim() } }, true));
+        C = Object.assign(C, await rpc("staff_save_settings", { p: { price: num("#s-price"), pair_price: num("#s-pair"), capacity: num("#s-cap"), capacity_weekend: num("#s-capw"), duration: num("#s-dur"), max_group: num("#s-maxg"), times: Array.from(new Set(times)).sort(), closed: $$("[data-closed]").filter((c) => c.checked).map((c) => Number(c.dataset.closed)), lead_min: num("#s-lead"), horizon_days: num("#s-hor"), cancel_hours: num("#s-cut"), max_moves: num("#s-mm"), phone: $("#s-phone").value.trim(), line: $("#s-line").value.trim(), address_th: $("#s-addr").value.trim(), address_en: $("#s-addren").value.trim(), map_url: $("#s-map").value.trim() } }, true));
         return "บันทึกแล้ว หน้าเว็บลูกค้าใช้ค่าใหม่ทันที";
       });
     });

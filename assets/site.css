@@ -898,3 +898,6 @@ body[data-mode=adm]{background:#f6f5ee}
 .pub .auth-tabs .chip { min-width: 0; cursor: pointer; font: inherit; font-weight: 500; }
 .pub .auth-tabs .chip.on { background: var(--leaf, #264006); border-color: var(--leaf, #264006); color: #fff; }
 .pub #auth-form, .pub #np-form { display: grid; gap: 12px; }
+.pub .hero-promo { display: inline-block; margin: -4px 0 18px; padding: 6px 12px; border-radius: 999px; background: var(--lemon, #fbdb00); color: #264006; font-weight: 600; font-size: .92rem; }
+.pub .price-promo { margin: 4px 0 12px; color: #264006; }
+.pub .price-promo b { display: inline-block; padding: 3px 10px; margin-right: 6px; border-radius: 999px; background: #264006; color: #fbdb00; }

@@ -12,6 +12,7 @@ create table if not exists settings (
 );
 insert into settings (id, data) values (1, jsonb_build_object(
   'price', 590,                  -- baht per person per session (Ice Bath + Sauna)
+  'pair_price', 1100,            -- promotion: every 2 people pay this together (0 turns it off)
   'capacity', 5,                 -- people per session on weekdays
   'capacity_weekend', 8,         -- people per session on Saturdays, Sundays and public holidays
   'duration', 120,               -- minutes a guest can stay (a new session starts every hour, so two sessions overlap)
@@ -29,6 +30,8 @@ insert into settings (id, data) values (1, jsonb_build_object(
   'map_url', 'https://maps.app.goo.gl/NJ1KqAuGzCA9HH1v5',
   'pay_mode', 'venue'            -- venue: pay at the shop. Online payment comes later with Stripe.
 )) on conflict (id) do nothing;
+-- add settings that came later to a database created before them (keeps any value already set)
+update settings set data = jsonb_build_object('pair_price', 1100) || data where id = 1 and not data ? 'pair_price';
 
 create table if not exists slot_overrides (
   day date not null,
@@ -211,6 +214,13 @@ begin
 end $$;
 
 -- ---------- public: anyone visiting the website ----------
+-- what a group pays: each pair gets the 2-person price when that promotion is on, anyone left over pays the normal price
+create or replace function _total(n int) returns int language sql stable set search_path = public as $$
+  select case when coalesce((c->>'pair_price')::int, 0) > 0
+              then (n / 2) * (c->>'pair_price')::int + (n % 2) * (c->>'price')::int
+              else n * (c->>'price')::int end
+  from (select _cfg() as c) x $$;
+
 create or replace function public_config() returns jsonb language sql stable security definer set search_path = public as $$
   select _cfg() || jsonb_build_object('now', now(), 'today', (_now_bkk())::date) $$;
 
@@ -264,7 +274,7 @@ begin
 
   insert into bookings (ref, day, hm, people, name, phone, email, note, total, channel, consent, user_id)
   values (_ref(), v_day, v_hm, v_people, v_name, v_phone, v_email, left(coalesce(p->>'note', ''), 500),
-          v_people * (c->>'price')::int, 'web', coalesce((p->>'consent')::boolean, false), auth.uid())
+          _total(v_people), 'web', coalesce((p->>'consent')::boolean, false), auth.uid())
   returning * into b;
   perform _log(b.ref, 'ลูกค้าจองทางเว็บ ' || v_people || ' คน');
   return jsonb_build_object('ref', b.ref, 'token', b.token);
@@ -403,7 +413,7 @@ begin
   if s.capacity - s.used < v_people and not v_over then raise exception 'slot_full'; end if;
   insert into bookings (ref, day, hm, people, name, phone, email, note, total, channel, pay)
   values (_ref(), v_day, v_hm, v_people, v_name, v_phone, lower(btrim(coalesce(p->>'email', ''))), left(coalesce(p->>'note', ''), 500),
-          case when v_free then 0 else v_people * (c->>'price')::int end, v_channel, case when v_free then 'none' else 'due' end)
+          case when v_free then 0 else _total(v_people) end, v_channel, case when v_free then 'none' else 'due' end)
   returning * into b;
   perform _log(b.ref, 'สร้างการจอง (' || v_channel || ')' || case when v_free then ' ไม่คิดเงิน' else '' end || case when v_over then ' เกินความจุ' else '' end);
   return _booking_json(b);
@@ -520,14 +530,14 @@ end $$;
 
 create or replace function staff_save_settings(p jsonb) returns jsonb
 language plpgsql volatile security definer set search_path = public as $$
-declare allowed text[] := array['price','capacity','capacity_weekend','duration','times','closed','lead_min','horizon_days','cancel_hours','max_moves','max_group','phone','line','address_th','address_en','map_url'];
+declare allowed text[] := array['price','pair_price','capacity','capacity_weekend','duration','times','closed','lead_min','horizon_days','cancel_hours','max_moves','max_group','phone','line','address_th','address_en','map_url'];
   k text; n jsonb := _cfg();
 begin
   perform _need('manager');
   for k in select jsonb_object_keys(p) loop
     if k = any(allowed) then n := jsonb_set(n, array[k], p->k); end if;
   end loop;
-  if (n->>'price')::int < 0 or (n->>'capacity')::int < 1 or (n->>'capacity_weekend')::int < 1 or (n->>'duration')::int < 10 or (n->>'max_group')::int < 1 then raise exception 'settings'; end if;
+  if (n->>'price')::int < 0 or coalesce((n->>'pair_price')::int, 0) < 0 or (n->>'capacity')::int < 1 or (n->>'capacity_weekend')::int < 1 or (n->>'duration')::int < 10 or (n->>'max_group')::int < 1 then raise exception 'settings'; end if;
   if exists (select 1 from jsonb_array_elements_text(n->'times') t where t.value !~ '^([01][0-9]|2[0-3]):[0-5][0-9]$') then raise exception 'settings'; end if;
   update settings set data = n where id = 1;
   perform _log('', 'แก้ไขการตั้งค่า');
