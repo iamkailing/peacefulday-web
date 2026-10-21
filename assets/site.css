@@ -310,7 +310,7 @@ body[data-mode=adm]{background:#f6f5ee}
 .pub .field { display: grid; gap: 6px; margin-bottom: 16px; }
 .pub .field label, .pub .label { font-weight: 500; font-size: .96rem; }
 .pub .field .hint { font-size: .85rem; color: var(--ink-2); }
-.pub .input, .pub .field input[type=text], .pub .field input[type=tel], .pub .field input[type=email], .pub .field input[type=date], .pub .field input[type=number], .pub .field select, .pub .field textarea {
+.pub .input, .pub .field input[type=text], .pub .field input[type=tel], .pub .field input[type=email], .pub .field input[type=password], .pub .field input[type=date], .pub .field input[type=number], .pub .field select, .pub .field textarea {
   width: 100%; min-height: 50px; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--line-2); background: var(--white); color: var(--ink);
   font: 400 1rem/1.4 var(--f-text); transition: border-color .2s, box-shadow .2s; }
 .pub .field textarea { min-height: 96px; resize: vertical; }
@@ -894,3 +894,7 @@ body[data-mode=adm]{background:#f6f5ee}
 .pub .small{font-size:.85rem}
 .pub .btn-row{display:flex;flex-wrap:wrap;gap:10px}
 .adm .captcha:empty{display:none}
+.pub .auth-tabs { margin-bottom: 14px; }
+.pub .auth-tabs .chip { min-width: 0; cursor: pointer; font: inherit; font-weight: 500; }
+.pub .auth-tabs .chip.on { background: var(--leaf, #264006); border-color: var(--leaf, #264006); color: #fff; }
+.pub #auth-form, .pub #np-form { display: grid; gap: 12px; }

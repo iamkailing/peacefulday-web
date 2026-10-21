@@ -62,18 +62,25 @@
     }
     return cust.access_token;
   }
-  async function requestCode(email, captcha) {
-    const body = { email, create_user: true };
-    const back = location.origin + location.pathname;
-    if (captcha) body.gotrue_meta_security = { captcha_token: captcha };
-    const r = await fetch(CFG.url + "/auth/v1/otp?redirect_to=" + encodeURIComponent(back), { method: "POST", headers: H, body: JSON.stringify(body) });
-    if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.msg || j.error_description || j.message || "otp"); }
+  // links in customer emails come back with ?c=1 so they open the customer side, not the back office
+  const custBack = () => encodeURIComponent(location.origin + location.pathname + "?c=1");
+  const withCaptcha = (o) => (R.captcha ? Object.assign(o, { gotrue_meta_security: { captcha_token: R.captcha } }) : o);
+  async function authCall(path, body) {
+    const r = await fetch(CFG.url + "/auth/v1/" + path, { method: "POST", headers: H, body: JSON.stringify(withCaptcha(body)) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error_code || j.msg || j.error_description || j.message || "auth");
+    return j;
   }
-  async function verifyCode(email, code) {
-    const r = await fetch(CFG.url + "/auth/v1/verify", { method: "POST", headers: H, body: JSON.stringify({ type: "email", email, token: code }) });
-    const j = await r.json();
-    if (!r.ok) throw new Error(j.msg || j.error_description || j.message || "verify");
-    keepCust(j);
+  async function custSignIn(email, password) { keepCust(await authCall("token?grant_type=password", { email, password })); }
+  async function custSignUp(email, password) {
+    const j = await authCall("signup?redirect_to=" + custBack(), { email, password });
+    if (j.access_token) { keepCust(j); return true; } // email confirmation is off
+    return false; // a confirmation email was sent
+  }
+  async function custReset(email) { await authCall("recover?redirect_to=" + custBack(), { email }); }
+  async function custSetPassword(password) {
+    const r = await fetch(CFG.url + "/auth/v1/user", { method: "PUT", headers: Object.assign({ Authorization: "Bearer " + (await custToken()) }, H), body: JSON.stringify({ password }) });
+    if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error_code || j.msg || j.message || "password"); }
   }
   function custOut() { cust = null; store.del(CUST_KEY); }
   // bot check (Cloudflare Turnstile); skipped until a site key is set in config.js
@@ -124,11 +131,12 @@
     if (h.includes("access_token=")) {
       const q = new URLSearchParams(h.slice(h.indexOf("#") + 1).replace(/^admin&?/, ""));
       const got = { access_token: q.get("access_token"), refresh_token: q.get("refresh_token"), expires_at: Date.now() + Number(q.get("expires_in") || 3600) * 1000, email: "" };
-      if (q.get("type") === "magiclink") {
-        // a customer clicked the sign-in link instead of typing the code
+      if (/(^|[?&])c=1/.test(location.search) || q.get("type") === "magiclink") {
+        // a customer opened the link in a confirmation or reset email
         try { got.email = JSON.parse(atob(got.access_token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"))).email || ""; } catch (e) { /* unreadable token */ }
         cust = got; store.set(CUST_KEY, got);
-        history.replaceState(null, "", location.pathname + "#book");
+        window.__pfdCustRecovery = q.get("type") === "recovery";
+        history.replaceState(null, "", location.pathname + (window.__pfdCustRecovery ? "#my" : "#book"));
       } else {
         session = got; store.set(SESSION_KEY, session);
         window.__pfdRecovery = q.get("type") === "recovery";
@@ -153,12 +161,12 @@
     not_staff: ["บัญชีนี้ยังไม่ได้รับสิทธิ์เข้าหลังบ้าน", "This account doesn't have back-office access yet."],
     settings: ["ค่าที่ตั้งไม่ถูกต้อง", "Some settings aren't valid."],
     method: ["เลือกวิธีรับเงินก่อน", "Choose how the payment was made."],
-    login: ["เข้าสู่ระบบด้วยอีเมลก่อนจอง", "Please sign in with your email first."],
+    login: ["เข้าสู่ระบบก่อนจอง", "Please sign in first."],
   };
   const errText = (e) => { const m = ERR[e && e.code] || ERR[e && e.message]; return m ? P(m[0], m[1]) : P("ระบบขัดข้อง ลองใหม่อีกครั้ง", "Something went wrong. Please try again."); };
 
   // ---------- state ----------
-  const R = { view: "home", flash: "", flashErr: "", busy: false, recovery: !!window.__pfdRecovery };
+  const R = { view: "home", flash: "", flashErr: "", busy: false, recovery: !!window.__pfdRecovery, custRecovery: !!window.__pfdCustRecovery };
   let C = null; // shop settings from the database
   const BK = { people: 2, day: "", hm: "", name: "", phone: "", email: "", note: "", agree: false, health: false, err: "", fieldErr: {} };
   let ME = null; // signed-in staff member
@@ -319,40 +327,72 @@
     ];
   }
 
-  // ---------- customer sign-in: email, then the 6-digit code from the email ----------
+  // ---------- customer sign-in: email + password (sign up once, then sign in) ----------
   function loginPanel(note) {
-    if (R.otpEmail) return `<div class="login-box" id="otp-box"><p>${P("เราส่งอีเมลเข้าสู่ระบบไปที่", "We emailed a sign-in message to")} <b>${esc(R.otpEmail)}</b> ${P("ใส่รหัสในอีเมล หรือกดลิงก์ในอีเมลก็ได้ (ถ้าไม่เห็น ลองดูในอีเมลขยะ)", "Enter the code from it, or tap its link. (Check spam if you don't see it.)")}</p>
-      <div class="field"><label for="otp-code">${P("รหัสจากอีเมล", "Code from the email")}</label><input id="otp-code" inputmode="numeric" autocomplete="one-time-code" maxlength="8" placeholder="123456"></div>
-      <div class="btn-row"><button class="btn btn--primary" type="button" data-otp-verify>${P("ยืนยันรหัส", "Confirm code")}</button><button class="btn btn--ghost" type="button" data-otp-again>${P("เปลี่ยนอีเมล / ขอรหัสใหม่", "Change email / new code")}</button></div></div>`;
+    const m = R.authMode || "in";
+    if (R.authSent) return `<div class="login-box" id="otp-box"><p>${R.authSent}</p><p class="muted small">${P("ถ้าไม่เห็นอีเมล ลองดูในอีเมลขยะ", "Check spam if you don't see it.")}</p><button class="btn btn--ghost" type="button" data-auth-mode="in">${P("กลับไปหน้าเข้าสู่ระบบ", "Back to sign in")}</button></div>`;
+    const tab = (k, th, en) => `<button type="button" class="chip${m === k ? " on" : ""}" data-auth-mode="${k}" aria-pressed="${m === k}">${P(th, en)}</button>`;
     return `<div class="login-box" id="otp-box">${note ? `<p>${note}</p>` : ""}
-      <div class="field"><label for="otp-email">${P("อีเมล", "Email")}</label><input id="otp-email" type="email" autocomplete="email" maxlength="254" value="${esc(R.otpTyped || "")}"></div>
+      ${m === "forgot" ? `<p>${P("ใส่อีเมลที่ใช้สมัคร เราจะส่งลิงก์ตั้งรหัสผ่านใหม่ไปให้", "Enter your email and we'll send a link to set a new password.")}</p>` : `<div class="btn-row auth-tabs">${tab("in", "เข้าสู่ระบบ", "Sign in")}${tab("up", "สมัครใหม่", "New account")}</div>`}
+      <div id="auth-form">
+      <div class="field"><label for="au-email">${P("อีเมล", "Email")}</label><input id="au-email" type="email" autocomplete="email" maxlength="254" value="${esc(R.otpTyped || "")}"></div>
+      ${m === "forgot" ? "" : `<div class="field"><label for="au-pass">${P("รหัสผ่าน", "Password")}${m === "up" ? ` <span class="muted small">${P("(อย่างน้อย 8 ตัว)", "(at least 8 characters)")}</span>` : ""}</label><input id="au-pass" type="password" minlength="8" maxlength="72" autocomplete="${m === "up" ? "new-password" : "current-password"}"></div>`}
       <div id="captcha" class="captcha"></div>
-      <button class="btn btn--primary" type="button" data-otp-send>${P("ส่งรหัสไปที่อีเมล", "Email me a code")}</button>
-      <p class="muted small">${P("ไม่ต้องตั้งรหัสผ่าน ใช้รหัสจากอีเมลทุกครั้งที่เข้าสู่ระบบ", "No password needed; we email you a code each time you sign in.")}</p></div>`;
+      <button class="btn btn--primary" type="button" data-auth-go>${m === "up" ? P("สมัครและเข้าสู่ระบบ", "Create account") : m === "forgot" ? P("ส่งลิงก์ตั้งรหัสใหม่", "Send reset link") : P("เข้าสู่ระบบ", "Sign in")}</button>
+      </div>
+      ${m === "in" ? `<p class="small"><a href="#" data-auth-mode="forgot">${P("ลืมรหัสผ่าน", "Forgot password?")}</a></p>` : m === "forgot" ? `<p class="small"><a href="#" data-auth-mode="in">${P("กลับไปหน้าเข้าสู่ระบบ", "Back to sign in")}</a></p>` : ""}</div>`;
+  }
+  function authErr(msg) {
+    if (/invalid_credentials|invalid login/i.test(msg)) return P("อีเมลหรือรหัสผ่านไม่ถูกต้อง", "Wrong email or password.");
+    if (/email_not_confirmed|not confirmed/i.test(msg)) return P("ยังไม่ได้ยืนยันอีเมล กดลิงก์ในอีเมลที่เราส่งไปตอนสมัครก่อน", "Please confirm your email first using the link we sent when you signed up.");
+    if (/user_already_exists|already registered/i.test(msg)) return P("อีเมลนี้สมัครไว้แล้ว ลองเข้าสู่ระบบ หรือกดลืมรหัสผ่าน", "That email already has an account. Sign in, or use Forgot password.");
+    if (/weak_password|password/i.test(msg)) return P("รหัสผ่านสั้นหรือง่ายเกินไป ใช้อย่างน้อย 8 ตัว", "That password is too short or too simple. Use at least 8 characters.");
+    if (/rate|seconds|many/i.test(msg)) return P("ทำรายการถี่เกินไป รอสักครู่แล้วลองใหม่", "Too many tries. Please wait a moment and try again.");
+    if (/captcha/i.test(msg)) return P("ตรวจสอบว่าไม่ใช่บอทไม่ผ่าน ลองใหม่อีกครั้ง", "The robot check didn't pass. Please try again.");
+    return P("ทำรายการไม่สำเร็จ ลองใหม่อีกครั้ง", "That didn't work. Please try again.");
   }
   function bindLoginPanel(after) {
     mountCaptcha();
-    const send = $("[data-otp-send]");
-    if (send) send.addEventListener("click", async () => {
-      const em = $("#otp-email").value.trim().toLowerCase(); R.otpTyped = em;
+    $$("[data-auth-mode]").forEach((b) => b.addEventListener("click", (e) => { e.preventDefault(); const em = $("#au-email"); if (em) R.otpTyped = em.value.trim(); R.authMode = b.dataset.authMode; R.authSent = ""; R.flashErr = ""; render(); }));
+    const form = $("#auth-form");
+    if (!form) return;
+    form.addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target.tagName === "INPUT") { e.preventDefault(); $("[data-auth-go]").click(); } });
+    $("[data-auth-go]").addEventListener("click", async (e) => {
+      e.preventDefault();
+      const m = R.authMode || "in";
+      const em = $("#au-email").value.trim().toLowerCase(); R.otpTyped = em;
+      const pw = $("#au-pass") ? $("#au-pass").value : "";
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(em)) { R.flashErr = errText({ code: "email" }); render(); return; }
+      if (m !== "forgot" && pw.length < (m === "up" ? 8 : 1)) { R.flashErr = m === "up" ? P("ตั้งรหัสผ่านอย่างน้อย 8 ตัว", "Use a password of at least 8 characters.") : P("ใส่รหัสผ่าน", "Please enter your password."); render(); return; }
       if (needCaptcha()) { R.flashErr = P("รอให้ช่องตรวจสอบว่าไม่ใช่บอทขึ้นเครื่องหมายถูกก่อน", "Please wait for the robot check to finish."); render(); return; }
-      send.disabled = true;
-      try { await requestCode(em, R.captcha); R.otpEmail = em; R.flash = ""; R.flashErr = ""; }
-      catch (e) { R.flashErr = /rate|seconds|many/i.test(e.message) ? P("ขอรหัสถี่เกินไป รอสักครู่แล้วลองใหม่", "Too many requests. Please wait a moment and try again.") : /captcha/i.test(e.message) ? P("ตรวจสอบว่าไม่ใช่บอทไม่ผ่าน ลองใหม่อีกครั้ง", "The robot check didn't pass. Please try again.") : P("ส่งรหัสไม่สำเร็จ ลองใหม่อีกครั้ง", "Couldn't send the code. Please try again."); }
+      const go = $("[data-auth-go]"); go.disabled = true;
+      try {
+        if (m === "forgot") { await custReset(em); R.authSent = P(`ถ้าอีเมล ${esc(em)} มีบัญชีอยู่ เราส่งลิงก์ตั้งรหัสผ่านใหม่ไปแล้ว`, `If ${esc(em)} has an account, we've sent a link to set a new password.`); R.flashErr = ""; render(); return; }
+        if (m === "up") {
+          const inNow = await custSignUp(em, pw);
+          if (!inNow) { R.authSent = P(`สมัครแล้ว กดลิงก์ยืนยันในอีเมลที่ส่งไปที่ ${esc(em)} แล้วจะเข้าสู่ระบบให้อัตโนมัติ`, `Account created. Open the confirmation link we sent to ${esc(em)} and you'll be signed in.`); R.flashErr = ""; render(); return; }
+        } else await custSignIn(em, pw);
+        R.flashErr = ""; R.authMode = "in";
+        try { const mb = await rpc("my_bookings", {}, "cust"); if (mb && mb.last) { BK.name = BK.name || mb.last.name; BK.phone = BK.phone || mb.last.phone; } } catch (err) { /* first booking */ }
+        if (after) after(); render();
+      } catch (err) { R.flashErr = authErr(err.message); render(); }
+    });
+  }
+  function newPasswordPanel() {
+    return `<div class="panel" style="max-width:520px"><h2 style="font-size:var(--step-2);margin-bottom:12px">${P("ตั้งรหัสผ่านใหม่", "Set a new password")}</h2>
+      <form id="np-form" class="login-box" novalidate><div class="field"><label for="np-pass">${P("รหัสผ่านใหม่ (อย่างน้อย 8 ตัว)", "New password (at least 8 characters)")}</label><input id="np-pass" type="password" minlength="8" maxlength="72" autocomplete="new-password"></div>
+      <button class="btn btn--primary" type="submit">${P("บันทึกรหัสผ่าน", "Save password")}</button></form></div>`;
+  }
+  function bindNewPassword() {
+    const f = $("#np-form"); if (!f) return;
+    f.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const pw = $("#np-pass").value;
+      if (pw.length < 8) { R.flashErr = P("ตั้งรหัสผ่านอย่างน้อย 8 ตัว", "Use a password of at least 8 characters."); render(); return; }
+      try { await custSetPassword(pw); R.custRecovery = false; R.flashErr = ""; R.flash = P("ตั้งรหัสผ่านใหม่แล้ว", "Your new password is saved."); }
+      catch (err) { R.flashErr = authErr(err.message); }
       render();
     });
-    const again = $("[data-otp-again]"); if (again) again.addEventListener("click", () => { R.otpEmail = ""; render(); });
-    const ver = $("[data-otp-verify]");
-    if (ver) ver.addEventListener("click", async () => {
-      const code = $("#otp-code").value.replace(/\D/g, "");
-      try {
-        await verifyCode(R.otpEmail, code); R.otpEmail = ""; R.flashErr = "";
-        try { const m = await rpc("my_bookings", {}, "cust"); if (m && m.last) { BK.name = BK.name || m.last.name; BK.phone = BK.phone || m.last.phone; } } catch (e) { /* first booking */ }
-        if (after) after(); render();
-      } catch (e) { R.flashErr = P("รหัสไม่ถูกต้องหรือหมดอายุ ลองใหม่หรือขอรหัสใหม่", "That code is wrong or has expired. Try again or ask for a new one."); render(); }
-    });
-    const oc = $("#otp-code"); if (oc) { oc.focus(); oc.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); ver.click(); } }); }
   }
   const signedInLine = () => `<p class="signed-in">${P("เข้าสู่ระบบเป็น", "Signed in as")} <b>${esc(cust.email)}</b> · <a href="#" data-cust-out>${P("ออกจากระบบ", "Sign out")}</a></p>`;
 
@@ -390,7 +430,7 @@
           `<div class="times" role="group">${slots.map((s) => `<button type="button" class="time" data-hm="${s.hm}" aria-pressed="${s.hm === BK.hm}"${s.ok ? "" : " disabled"}><b>${s.hm}</b><span class="${s.remaining > 0 && s.remaining <= 2 ? "low" : ""}">${s.remaining > 0 ? P("ว่าง " + s.remaining, s.remaining + " left") : P("เต็ม", "Full")}</span></button>`).join("")}</div>`}
       </div>
       <div class="step"><div class="step-title"><span class="num" aria-hidden="true"></span><h2>${P("ข้อมูลผู้จอง", "Your details")}</h2></div>
-        ${!cust ? loginPanel(P("เข้าสู่ระบบด้วยอีเมลก่อนจอง เราจะส่งรหัส 6 หลักไปให้", "Sign in with your email to book. We'll send you a 6-digit code.")) : `${signedInLine()}
+        ${!cust ? loginPanel(P("เข้าสู่ระบบก่อนจอง ครั้งแรกกด สมัครใหม่ ใช้อีเมลและตั้งรหัสผ่าน", "Sign in to book. First time? Choose New account and set a password.")) : `${signedInLine()}
         ${field("name", P("ชื่อ", "Name"), `<input type="text" id="f-name" data-bk="name" autocomplete="name" maxlength="120" value="${esc(BK.name)}">`)}
         <div class="row-2">
           ${field("phone", P("เบอร์โทร", "Phone"), `<input type="tel" id="f-phone" data-bk="phone" autocomplete="tel" inputmode="tel" maxlength="20" placeholder="08x-xxx-xxxx" value="${esc(BK.phone)}">`)}
@@ -518,11 +558,12 @@
     const st = { confirmed: P("จองแล้ว", "Booked"), checked_in: P("เช็คอินแล้ว", "Checked in"), cancelled: P("ยกเลิกแล้ว", "Cancelled"), no_show: P("ไม่ได้มา", "Missed") };
     return pubLayout(`<header class="page-head"><div class="wrap"><h1>${P("การจองของฉัน", "My bookings")}</h1></div></header>
 <section class="section" style="padding-top:8px"><div class="wrap">${flashHTML()}
+  ${cust && R.custRecovery ? newPasswordPanel() : ""}
   ${mine ? `${signedInLine()}${mine.bookings.length ? `<div class="cards">${mine.bookings.map((b) => `<a class="bcard" href="#booking/${esc(b.ref)}/${esc(b.token)}" data-open="${esc(b.ref)}|${esc(b.token)}"><span class="date-badge"><b>${Number(b.day.slice(8))}</b><span>${esc(mon(b.day))}</span></span><span class="info"><b>${esc(b.hm)} · ${b.people} ${P("คน", "people")}</b><span>${esc(b.ref)} · ${esc(dShort(b.day))}</span></span><span class="badge ${b.status === "confirmed" || b.status === "checked_in" ? "badge--ok" : "badge--bad"}">${st[b.status]}</span></a>`).join("")}</div>` : `<p class="muted">${P("ยังไม่มีการจอง", "No bookings yet.")}</p>`}<p class="mt-m"><a class="btn btn--primary" href="#book" data-go="book">${P("จองรอบ", "Book a session")}</a></p>`
   : `<div class="panel" style="max-width:520px"><h2 style="font-size:var(--step-2);margin-bottom:12px">${P("เข้าสู่ระบบเพื่อดูการจอง", "Sign in to see your bookings")}</h2>${loginPanel("")}</div>`}
 </div></section>`);
   }
-  function bindMy() { if (!cust) bindLoginPanel(); }
+  function bindMy() { if (!cust) bindLoginPanel(); else bindNewPassword(); }
 
 
   // ================= back office =================
