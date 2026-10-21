@@ -151,11 +151,11 @@
     phone: ["เบอร์โทรไม่ถูกต้อง ใช้เบอร์ไทย 9–10 หลัก", "Please enter a valid Thai phone number."],
     email: ["อีเมลไม่ถูกต้อง", "That email address doesn't look right."],
     people: ["จำนวนคนไม่ถูกต้อง", "Please choose how many people are coming."],
-    slot_full: ["รอบนี้ที่ไม่พอแล้ว กรุณาเลือกรอบอื่น ข้อมูลที่กรอกไว้ยังอยู่", "That session no longer has room. Please pick another; your details are kept."],
+    slot_full: ["รอบนี้มีที่ว่างไม่พอ กรุณาเลือกรอบอื่น ข้อมูลที่กรอกไว้ยังอยู่", "There aren't enough places left in this session. Please choose another; your details are saved."],
     slot_closed: ["รอบนี้ปิดรับจองแล้ว กรุณาเลือกรอบอื่น", "That session isn't open for booking. Please pick another."],
     too_soon: ["รอบนี้ใกล้เวลาเริ่มเกินไปสำหรับการจองออนไลน์ โทรหาเราได้เลย", "That session starts too soon to book online. Please call us."],
     duplicate: ["เบอร์นี้จองรอบนี้ไว้แล้ว ถ้าต้องการเพิ่มคนกรุณาโทรหาเรา", "This phone number already has a booking in that session. To add people, please call us."],
-    too_many: ["เบอร์นี้มีการจองที่ยังไม่ถึงวันครบ 3 รายการแล้ว โทรหาเราได้ถ้าต้องการจองเพิ่ม", "This phone number already has 3 upcoming bookings. Please call us to book more."],
+    too_many: ["เบอร์นี้มีการจองล่วงหน้าครบ 3 รายการแล้ว หากต้องการจองเพิ่ม กรุณาโทรหาเรา", "This phone number already has 3 upcoming bookings. Please call us to book more."],
     change_closed: ["เลยกำหนดเปลี่ยนแปลงออนไลน์แล้ว กรุณาโทรหาเรา", "It's past the online change deadline. Please call us."],
     notfound: ["ไม่พบการจองนี้", "We couldn't find that booking."],
     forbidden: ["ตำแหน่งของคุณทำรายการนี้ไม่ได้", "Your role can't do this."],
@@ -174,7 +174,7 @@
   const pairOn = () => Number(C.pair_price) > 0;
   const priceFor = (n) => (pairOn() ? Math.floor(n / 2) * Number(C.pair_price) + (n % 2) * Number(C.price) : n * Number(C.price));
   const priceLine = (n) => (pairOn() && n >= 2 ? `${P("โปร 2 คน", "2-person deal")} ${baht(C.pair_price)}${Math.floor(n / 2) > 1 ? ` × ${Math.floor(n / 2)}` : ""}${n % 2 ? ` + ${baht(C.price)}` : ""}` : `${baht(C.price)} × ${n}`);
-  const promoText = () => P(`โปร มา 2 คน ${baht(C.pair_price)} (ปกติ ${baht(C.price * 2)})`, `Come as two for ${baht(C.pair_price)} (usually ${baht(C.price * 2)})`);
+  const promoText = () => P(`โปร 2 คน ${baht(C.pair_price)} (ปกติ ${baht(C.price * 2)})`, `Two people for ${baht(C.pair_price)} (usually ${baht(C.price * 2)})`);
   const endHM = (hm) => { const [h, m] = hm.split(":").map(Number), t = h * 60 + m + Number(C.duration || 120); return String(Math.floor(t / 60) % 24).padStart(2, "0") + ":" + String(t % 60).padStart(2, "0"); };
   // gallery: [file, small width, Thai caption, English caption, Thai alt, English alt]; the first one runs full width
   const GALLERY = [
@@ -223,12 +223,12 @@
   }
   const policyLine = () => P(
     `ยกเลิกหรือเลื่อนรอบได้เองก่อนเวลาเริ่ม ${C.cancel_hours} ชั่วโมง (เลื่อนได้ ${C.max_moves} ครั้ง) ผ่านลิงก์ในหน้าการจองของคุณ หลังจากนั้นกรุณาโทร ${C.phone}`,
-    `You can cancel or move your booking yourself up to ${C.cancel_hours} hours before it starts (one move per booking) from your booking page. After that, please call ${C.phone}.`);
+    `You can cancel or move your booking yourself up to ${C.cancel_hours} hours before it starts (up to ${C.max_moves} reschedules per booking) from your booking page. After that, please call ${C.phone}.`);
 
   // ---------- public layout ----------
   function pubLayout(main, opts) {
     opts = opts || {};
-    const nav = [["home#experience", P("ประสบการณ์", "Experience")], ["book", P("ราคาและจอง", "Prices & booking")], ["home#first", P("มาครั้งแรก", "First visit")], ["home#visit", P("การเดินทาง", "Getting here")], ["my", P("การจองของฉัน", "My booking")]];
+    const nav = [["home#experience", P("บรรยากาศ", "Our space")], ["book", P("ราคาและจอง", "Prices & booking")], ["home#first", P("มาครั้งแรก", "First visit")], ["home#visit", P("การเดินทาง", "Getting here")], ["my", P("การจองของฉัน", "My bookings")]];
     return `<div class="pub pfd-home${opts.paybar ? " has-paybar" : ""}">
 <a class="skip" href="#main">${P("ข้ามไปเนื้อหา", "Skip to content")}</a>
 <header class="site-header"><div class="wrap">
@@ -245,9 +245,9 @@
 <footer class="site-footer"><div class="wrap">
   <div class="foot-grid">
     <p class="foot-brand">${P("แช่เย็น อบร้อน แล้วพักในสวน", "Cold plunge, warm sauna, a quiet garden.")}</p>
-    <div class="foot-col"><h2>${P("ที่ร้าน", "Visit")}</h2><p>${esc(P(C.address_th, C.address_en))}</p><p>${esc(hoursLine())}</p><p><a href="${esc(C.map_url)}" target="_blank" rel="noopener">${P("เปิดในแผนที่", "Open in Maps")}</a></p></div>
+    <div class="foot-col"><h2>${P("ที่ตั้งและเวลาเปิด", "Visit us")}</h2><p>${esc(P(C.address_th, C.address_en))}</p><p>${esc(hoursLine())}</p><p><a href="${esc(C.map_url)}" target="_blank" rel="noopener">${P("เปิดในแผนที่", "Open in Maps")}</a></p></div>
     <div class="foot-col"><h2>${P("ติดต่อ", "Contact")}</h2><p>${P("โทร", "Call")} <a href="tel:${esc((C.phone || "").replace(/\D/g, ""))}">${esc(C.phone)}</a></p>${C.line ? `<p>LINE ${esc(C.line)}</p>` : ""}</div>
-    <div class="foot-col"><h2>${P("การจอง", "Bookings")}</h2><ul><li><a href="#book" data-go="book">${P("จองรอบ", "Book a session")}</a></li><li><a href="#my" data-go="my">${P("ดูหรือแก้การจอง", "See or change a booking")}</a></li><li><a href="#admin" data-go="admin">${P("สำหรับทีมงาน", "Staff")}</a></li></ul></div>
+    <div class="foot-col"><h2>${P("การจอง", "Bookings")}</h2><ul><li><a href="#book" data-go="book">${P("จองรอบ", "Book a session")}</a></li><li><a href="#my" data-go="my">${P("ดูหรือแก้ไขการจอง", "View or change a booking")}</a></li><li><a href="#admin" data-go="admin">${P("สำหรับทีมงาน", "Staff")}</a></li></ul></div>
   </div>
   <div class="foot-base"><span>© ${new Date().getFullYear()} Peaceful Day</span><a href="#" data-lang>${P("English", "ภาษาไทย")}</a></div>
 </div></footer>${opts.after || ""}</div>`;
@@ -265,13 +265,13 @@
 <section class="hero" aria-labelledby="hero-title"><div class="wrap">
   <div class="hero-copy">
     <p class="eyebrow"><span></span>Ice Bath + Sauna · ${P("สุขุมวิท 62", "Sukhumvit 62")}</p>
-    <h1 id="hero-title">${P('<span class="line">วันนี้</span><span class="line">แค่มาพัก</span>', '<span class="line">Today,</span><span class="line">just come and rest.</span>')}</h1>
-    <p class="lede">${P("แช่น้ำเย็น อบซาวน่า แล้วพักหายใจช้า ๆ ในสวนกลางสุขุมวิท 62 มาครั้งแรกก็ได้ ไม่ต้องฝืนตัวเอง", "A cold plunge, a warm sauna and slow breathing in a garden off Sukhumvit 62. First-timers welcome; go at your own pace.")}</p>
+    <h1 id="hero-title">${P('<span class="line">วันนี้</span><span class="line">แค่มาพักก็พอ</span>', '<span class="line">A little time</span><span class="line">to unwind.</span>')}</h1>
+    <p class="lede">${P("แช่น้ำเย็น อบซาวน่า แล้วนั่งพักในสวนที่สุขุมวิท 62 ไม่เคยลองมาก่อนก็มาได้ ค่อย ๆ เริ่มในแบบที่สบายกับตัวเอง", "Ice baths, a warm sauna and a garden to unwind in on Sukhumvit 62. First time? You're welcome to take it at your own pace.")}</p>
     <p class="hero-price"><strong>${baht(C.price)}</strong>${P(`ต่อคน ใช้บริการได้ ${C.duration / 60} ชั่วโมง`, `per person, ${C.duration / 60} hours`)}</p>${pairOn() ? `<p class="hero-promo">${promoText()}</p>` : ""}
-    <div class="hero-cta"><a class="btn btn--primary" href="#book" data-go="book">${P("ดูรอบว่างและจอง", "See times and book")}</a><a class="btn" href="#first" data-go="home#first">${P("มาครั้งแรกทำยังไง", "First time here?")}</a></div>
+    <div class="hero-cta"><a class="btn btn--primary" href="#book" data-go="book">${P("ดูรอบว่างและจอง", "See times and book")}</a><a class="btn" href="#first" data-go="home#first">${P("เตรียมตัวก่อนมา", "First time here?")}</a></div>
     <p class="hero-hours">${ICON.clock}<span>${esc(hoursLine())}</span></p>
-    <div class="next"><h2>${P("รอบว่างถัดไป", "Next open sessions")}</h2>
-      ${next.length ? `<ul class="chips">${next.map((s) => `<li><a class="chip" href="#book" data-book="${s.day}|${s.hm}"><span>${esc(rel(s.day))}</span><b>${s.hm}</b><em>${s.remaining <= 3 ? P("เหลือ " + s.remaining + " ที่", s.remaining + " left") : P("ถึง " + endHM(s.hm), "until " + endHM(s.hm))}</em></a></li>`).join("")}<li><a class="chip chip--more" href="#book" data-go="book">${P("ดูวันอื่น", "More days")}</a></li></ul>` : `<p class="muted">${P("ตอนนี้ยังไม่มีรอบว่างในสัปดาห์นี้ ลองดูวันถัดไปในหน้าจอง", "No open sessions this week. Try later dates on the booking page.")}</p>`}
+    <div class="next"><h2>${P("รอบว่างถัดไป", "Next available sessions")}</h2>
+      ${next.length ? `<ul class="chips">${next.map((s) => `<li><a class="chip" href="#book" data-book="${s.day}|${s.hm}"><span>${esc(rel(s.day))}</span><b>${s.hm}</b><em>${s.remaining <= 3 ? P("เหลือ " + s.remaining + " ที่", s.remaining + " left") : P("ถึง " + endHM(s.hm), "until " + endHM(s.hm))}</em></a></li>`).join("")}<li><a class="chip chip--more" href="#book" data-go="book">${P("ดูวันอื่น", "More days")}</a></li></ul>` : `<p class="muted">${P("ตอนนี้ยังไม่มีรอบว่างในสัปดาห์นี้ ลองดูวันถัดไปในหน้าจอง", "No sessions are available this week. Check later dates on the booking page.")}</p>`}
     </div>
   </div>
   <div class="hero-media"><div class="pebble"><img src="${IMG("hero-sky.jpg")}" srcset="${IMG("hero-sky-800.jpg")} 800w, ${IMG("hero-sky.jpg")} 941w" sizes="(min-width: 900px) 46vw, 92vw" width="941" height="1672" alt="${P("อ่างไม้ใส่น้ำแข็งกับเป็ดยางสีเหลือง ใต้ร่มลายเหลืองในสวนของ Peaceful Day", "Ice-filled wooden tubs with yellow rubber ducks under a yellow-striped umbrella in the Peaceful Day garden")}" fetchpriority="high"></div></div>
@@ -280,40 +280,40 @@
 <section class="section" id="included" aria-labelledby="inc-title"><div class="wrap">
   <div class="section-head"><p class="eyebrow"><span></span>${P("ในหนึ่งรอบ", "In one session")}</p><h2 id="inc-title">${P(`${C.duration / 60} ชั่วโมง ใช้ได้ทั้งสามมุม`, `${C.duration / 60} hours, all three spaces`)}</h2></div>
   <ul class="why">
-    <li><span class="ico">${ICON.snow}</span><div><h3>Ice Bath</h3><p>${P("อ่างน้ำเย็นในสวน แช่สั้น ๆ ตามที่ร่างกายไหว ทีมงานบอกวิธีให้ก่อนเริ่ม", "Cold tubs in the garden. Short dips at your own pace; the team shows you how first.")}</p></div></li>
-    <li><span class="ico">${ICON.flame}</span><div><h3>Sauna</h3><p>${P("อบอุ่นสลับกับแช่เย็นได้ตลอดรอบ", "Warm up between cold dips as often as you like during the session.")}</p></div></li>
-    <li><span class="ico">${ICON.leaf}</span><div><h3>${P("สวนสำหรับพัก", "Garden to rest")}</h3><p>${P(`นั่งพักหายใจในสวนหลังแช่ รับรอบละไม่เกิน ${C.capacity} คน (เสาร์-อาทิตย์และวันหยุดนักขัตฯ ${C.capacity_weekend || C.capacity} คน) ไม่แออัด`, `Sit and breathe in the garden afterwards. Each session takes up to ${C.capacity} people (${C.capacity_weekend || C.capacity} on weekends and public holidays).`)}</p></div></li>
+    <li><span class="ico">${ICON.snow}</span><div><h3>Ice Bath</h3><p>${P("แช่น้ำเย็นในสวน เริ่มทีละนิดตามที่ไหว มีทีมงานอธิบายวิธีก่อนเริ่ม", "Ice baths in the garden, with guidance from the team before you start. Take short dips at your own pace.")}</p></div></li>
+    <li><span class="ico">${ICON.flame}</span><div><h3>Sauna</h3><p>${P("อบซาวน่าสลับกับแช่น้ำเย็นได้ภายในเวลาของรอบ", "Enjoy the sauna between cold dips during your session.")}</p></div></li>
+    <li><span class="ico">${ICON.leaf}</span><div><h3>${P("มุมพักในสวน", "Garden")}</h3><p>${P(`นั่งพักในสวนหลังแช่ รับรอบละไม่เกิน ${C.capacity} คน (เสาร์-อาทิตย์และวันหยุดนักขัตฯ ${C.capacity_weekend || C.capacity} คน)`, `Take a break in the garden afterwards. Each session welcomes up to ${C.capacity} people (${C.capacity_weekend || C.capacity} on weekends and public holidays).`)}</p></div></li>
   </ul>
 </div></section>
 
 <section class="section section--tint" id="experience" aria-labelledby="exp-title"><div class="wrap">
-  <div class="section-head"><p class="eyebrow"><span></span>${P("บรรยากาศจริง", "The place")}</p><h2 id="exp-title">${P('อ่างน้ำเย็น <span class="nw">ซาวน่า</span> และสวน', "Cold tubs, sauna and garden")}</h2></div>
+  <div class="section-head"><p class="eyebrow"><span></span>${P("บรรยากาศที่ร้าน", "Around Peaceful Day")}</p><h2 id="exp-title">${P('อ่างน้ำเย็น <span class="nw">ซาวน่า</span> และสวน', "Cold tubs, sauna and garden")}</h2></div>
   <div class="trio trio--gallery">${GALLERY.map(([f, w, th, en, ath, aen], i) => `<figure${i === 0 ? ' class="wide"' : ""}><img src="${IMG(f + ".jpg")}" srcset="${IMG(f + "-" + w + ".jpg")} ${w}w, ${IMG(f + ".jpg")} ${i === 0 ? 1448 : 1000}w" sizes="${i === 0 ? "92vw" : "(min-width: 980px) 23vw, (min-width: 560px) 46vw, 92vw"}" alt="${P(ath, aen)}" loading="lazy"><figcaption>${P(th, en)}</figcaption></figure>`).join("")}</div>
 </div></section>
 
 <section class="section" id="first" aria-labelledby="first-title"><div class="wrap">
-  <div class="section-head"><p class="eyebrow"><span></span>${P("มาครั้งแรก", "First visit")}</p><h2 id="first-title">${P("มาครั้งแรกทำแบบนี้", "How your first visit goes")}</h2></div>
+  <div class="section-head"><p class="eyebrow"><span></span>${P("มาครั้งแรก", "First visit")}</p><h2 id="first-title">${P("เตรียมตัวสำหรับครั้งแรก", "Your first visit")}</h2></div>
   <ol class="steps">
-    <li><div><h3>${P("จองรอบออนไลน์", "Book online")}</h3><p>${P("เลือกจำนวนคน วัน และเวลา แล้วชำระเงินที่ร้านตอนมาถึง", "Choose how many people, the day and time. You pay at the shop when you arrive.")}</p></div></li>
-    <li><div><h3>${P("มาก่อนเวลา 10–15 นาที", "Arrive 10–15 minutes early")}</h3><p>${P("เตรียมชุดว่ายน้ำหรือชุดที่เปียกได้ ทีมงานจะอธิบายวิธีแช่ให้", "Bring swimwear or clothes that can get wet. The team will walk you through it.")}</p></div></li>
-    <li><div><h3>${P("แช่เย็น สลับอบซาวน่า", "Cold, then warm")}</h3><p>${P("เริ่มสั้น ๆ ไม่ต้องฝืน ร่างกายบอกให้พักเมื่อไหร่ก็พัก", "Start short and don't force it. Rest whenever your body asks.")}</p></div></li>
-    <li><div><h3>${P("พักในสวนก่อนกลับ", "Rest in the garden")}</h3><p>${P("นั่งหายใจช้า ๆ ให้ร่างกายปรับตัวก่อนกลับ", "Sit, breathe slowly and let your body settle before you go.")}</p></div></li>
+    <li><div><h3>${P("จองรอบออนไลน์", "Book online")}</h3><p>${P("เลือกจำนวนคน วัน และเวลา แล้วชำระเงินที่ร้านตอนมาถึง", "Choose your group size, date and time, then pay at the shop when you arrive.")}</p></div></li>
+    <li><div><h3>${P("มาก่อนเวลา 10–15 นาที", "Arrive 10–15 minutes early")}</h3><p>${P("เตรียมชุดว่ายน้ำหรือชุดที่เปียกได้ ทีมงานจะอธิบายวิธีแช่ให้", "Bring swimwear or clothes that can get wet. Our team will explain how to get started.")}</p></div></li>
+    <li><div><h3>${P("แช่น้ำเย็นและอบซาวน่า", "Ice bath and sauna")}</h3><p>${P("เริ่มแช่ช่วงสั้น ๆ ไม่ต้องฝืน และพักได้เมื่อรู้สึกว่าพอแล้ว", "Keep your first dips short, go at your own pace and take breaks when you need them.")}</p></div></li>
+    <li><div><h3>${P("พักในสวนก่อนกลับ", "Rest in the garden")}</h3><p>${P("ใช้เวลานั่งพักในสวนสักหน่อยก่อนกลับ", "Take a little time to relax in the garden before heading home.")}</p></div></li>
   </ol>
 </div></section>
 
 <section class="section section--sage" id="price" aria-labelledby="price-title"><div class="wrap">
-  <div class="section-head"><p class="eyebrow"><span></span>${P("ราคา", "Price")}</p><h2 id="price-title">${P("ราคาเดียว ชัดเจน", "One clear price")}</h2></div>
+  <div class="section-head"><p class="eyebrow"><span></span>${P("ราคา", "Price")}</p><h2 id="price-title">${P("ราคาต่อรอบ", "Session prices")}</h2></div>
   <div class="price-grid"><article class="price price--feature">
     <h3>${P("Ice Bath + Sauna 1 รอบ", "Ice Bath + Sauna, one session")}</h3>
     <p class="price-amount">${baht(C.price)}<small>${P(" / คน", " / person")}</small></p>
-    ${pairOn() ? `<p class="price-promo"><b>${P("โปร 2 คน", "2-person deal")} ${baht(C.pair_price)}</b> ${P(`ปกติ ${baht(C.price * 2)} มากี่คู่ก็ได้ราคานี้ทุกคู่`, `instead of ${baht(C.price * 2)}, for every pair in your group`)}</p>` : ""}
+    ${pairOn() ? `<p class="price-promo"><b>${P("โปร 2 คน", "2-person deal")} ${baht(C.pair_price)}</b> ${P(`ปกติ ${baht(C.price * 2)} ใช้ราคาโปรได้ทุกคู่ในกลุ่ม`, `instead of ${baht(C.price * 2)}, for every pair in your group`)}</p>` : ""}
     <p class="price-note">${P(`ใช้บริการได้ ${C.duration / 60} ชั่วโมง เริ่มรอบใหม่ทุกชั่วโมง ชำระที่ร้าน`, `${C.duration / 60} hours from your start time; sessions start every hour. Pay at the shop.`)}</p>
-    <a class="btn btn--primary" href="#book" data-go="book">${P("เลือกจำนวนคนและดูรอบว่าง", "Choose your group and see times")}</a>
+    <a class="btn btn--primary" href="#book" data-go="book">${P("เลือกจำนวนคนและดูรอบว่าง", "Choose group size and see times")}</a>
   </article></div>
 </div></section>
 
 <section class="section" id="faq" aria-labelledby="faq-title"><div class="wrap">
-  <div class="section-head"><p class="eyebrow"><span></span>FAQ</p><h2 id="faq-title">${P("คำถามก่อนจอง", "Before you book")}</h2></div>
+  <div class="section-head"><p class="eyebrow"><span></span>FAQ</p><h2 id="faq-title">${P("คำถามที่พบบ่อย", "Frequently asked questions")}</h2></div>
   <div class="faq">${faq.map(([q, a]) => `<details><summary>${esc(q)}</summary><div class="ans"><p>${esc(a)}</p></div></details>`).join("")}</div>
 </div></section>
 
@@ -321,7 +321,7 @@
   <div><div class="section-head"><p class="eyebrow"><span></span>${P("การเดินทาง", "Getting here")}</p><h2 id="loc-title">${esc(P(C.address_th, C.address_en))}</h2></div>
   <ul class="dir">
     <li><span class="ico">${ICON.train}</span><div><h3>BTS</h3><p>${P("ลงสถานีบางจาก ทางออก 2 เดินเข้าซอยสุขุมวิท 62 ประมาณ 5 นาที", "Bang Chak station, Exit 2, then about 5 minutes' walk into Sukhumvit 62.")}</p></div></li>
-    <li><span class="ico">${ICON.car}</span><div><h3>${P("มาด้วยรถ", "By car")}</h3><p>${P("ที่จอดมีจำกัด โทรถามก่อนมาได้", "Parking is limited; call ahead if you're driving.")}</p></div></li>
+    <li><span class="ico">${ICON.car}</span><div><h3>${P("เดินทางด้วยรถยนต์", "By car")}</h3><p>${P("ที่จอดรถมีจำกัด โทรสอบถามก่อนเดินทางได้", "Parking is limited; call ahead if you're driving.")}</p></div></li>
     <li><span class="ico">${ICON.clock}</span><div><h3>${P("เวลาเปิด", "Hours")}</h3><p>${esc(hoursLine())}</p></div></li>
   </ul>
   <div class="loc-actions"><a class="btn btn--primary" href="${esc(C.map_url)}" target="_blank" rel="noopener">${ICON.pin}${P("เปิดในแผนที่", "Open in Maps")}</a><a class="btn" href="tel:${esc((C.phone || "").replace(/\D/g, ""))}">${P("โทร", "Call")} ${esc(C.phone)}</a></div></div>
@@ -330,10 +330,10 @@
   }
   function faqItems() {
     return [
-      [P("ไม่เคยแช่น้ำเย็นมาก่อน มาได้ไหม", "I've never done an ice bath. Can I come?"), P("ได้ ครั้งแรกเริ่มแช่สั้น ๆ ตามที่ร่างกายไหว ทีมงานอธิบายวิธีให้ก่อนเริ่ม", "Yes. Start with short dips at your own pace; the team explains everything first.")],
+      [P("ไม่เคยแช่น้ำเย็นมาก่อน มาได้ไหม", "I've never done an ice bath. Can I come?"), P("ได้ค่ะ ทีมงานจะอธิบายวิธีก่อนเริ่ม ครั้งแรกค่อย ๆ แช่ช่วงสั้น ๆ ตามที่ไหว", "Yes. Our team will explain how to get started. Begin with short dips at your own pace.")],
       [P("ต้องเตรียมอะไรมา", "What should I bring?"), P("ชุดว่ายน้ำหรือชุดที่เปียกได้ และมาก่อนเวลา 10–15 นาที", "Swimwear or clothes that can get wet. Please arrive 10–15 minutes early.")],
       [P(`${baht(C.price)} รวมอะไรบ้าง`, `What does ${baht(C.price)} include?`), P(`Ice Bath และ Sauna ใช้ได้ ${C.duration / 60} ชั่วโมงนับจากเวลาที่จอง ต่อคน${pairOn() ? ` มา 2 คนจ่าย ${baht(C.pair_price)}` : ""}`, `The ice bath and sauna for ${C.duration / 60} hours from your booked time, per person.${pairOn() ? ` Two people pay ${baht(C.pair_price)}.` : ""}`)],
-      [P("จ่ายเงินยังไง", "How do I pay?"), P("จองออนไลน์แล้วชำระที่ร้านตอนมาถึง รับเงินสด โอน และบัตร", "Book online and pay at the shop when you arrive: cash, transfer or card.")],
+      [P("ชำระเงินอย่างไร", "How do I pay?"), P("จองออนไลน์แล้วชำระที่ร้านตอนมาถึง รับเงินสด โอน และบัตร", "Book online and pay at the shop when you arrive: cash, transfer or card.")],
       [P("มากันเป็นกลุ่มได้ไหม", "Can we come as a group?"), P(`ได้ รับรอบละไม่เกิน ${C.capacity} คน (เสาร์-อาทิตย์และวันหยุดนักขัตฯ ${C.capacity_weekend || C.capacity} คน) เลือกจำนวนคนตอนจอง ถ้าต้องการจองทั้งรอบหรือกลุ่มใหญ่ โทรหาเรา`, `Yes. Each session takes up to ${C.capacity} people (${C.capacity_weekend || C.capacity} on weekends and public holidays). For a private session or a bigger group, please call us.`)],
       [P("เลื่อนหรือยกเลิกได้ไหม", "Can I move or cancel?"), policyLine()],
       [P("มีข้อควรระวังด้านสุขภาพไหม", "Any health precautions?"), P("การแช่น้ำเย็นและซาวน่าอาจไม่เหมาะกับผู้มีโรคหัวใจ ความดันสูงที่ยังคุมไม่ได้ หรือผู้ตั้งครรภ์ ถ้าไม่แน่ใจกรุณาปรึกษาแพทย์ก่อน และบอกทีมงานเมื่อมาถึง", "Cold water and sauna may not suit people with heart conditions, uncontrolled high blood pressure, or who are pregnant. If unsure, ask your doctor first and tell our team when you arrive.")],
@@ -343,7 +343,7 @@
   // ---------- customer sign-in: email + password (sign up once, then sign in) ----------
   function loginPanel(note) {
     const m = R.authMode || "in";
-    if (R.authSent) return `<div class="login-box" id="otp-box"><p>${R.authSent}</p><p class="muted small">${P("ถ้าไม่เห็นอีเมล ลองดูในอีเมลขยะ", "Check spam if you don't see it.")}</p><button class="btn btn--ghost" type="button" data-auth-mode="in">${P("กลับไปหน้าเข้าสู่ระบบ", "Back to sign in")}</button></div>`;
+    if (R.authSent) return `<div class="login-box" id="otp-box"><p>${R.authSent}</p><p class="muted small">${P("หากยังไม่พบอีเมล ลองตรวจสอบโฟลเดอร์อีเมลขยะ", "If you don't see the email, check your spam folder.")}</p><button class="btn btn--ghost" type="button" data-auth-mode="in">${P("กลับไปหน้าเข้าสู่ระบบ", "Back to sign in")}</button></div>`;
     const tab = (k, th, en) => `<button type="button" class="chip${m === k ? " on" : ""}" data-auth-mode="${k}" aria-pressed="${m === k}">${P(th, en)}</button>`;
     return `<div class="login-box" id="otp-box">${note ? `<p>${note}</p>` : ""}
       ${m === "forgot" ? `<p>${P("ใส่อีเมลที่ใช้สมัคร เราจะส่งลิงก์ตั้งรหัสผ่านใหม่ไปให้", "Enter your email and we'll send a link to set a new password.")}</p>` : `<div class="btn-row auth-tabs">${tab("in", "เข้าสู่ระบบ", "Sign in")}${tab("up", "สมัครใหม่", "New account")}</div>`}
@@ -351,17 +351,17 @@
       <div class="field"><label for="au-email">${P("อีเมล", "Email")}</label><input id="au-email" type="email" autocomplete="email" maxlength="254" value="${esc(R.otpTyped || "")}"></div>
       ${m === "forgot" ? "" : `<div class="field"><label for="au-pass">${P("รหัสผ่าน", "Password")}${m === "up" ? ` <span class="muted small">${P("(อย่างน้อย 8 ตัว)", "(at least 8 characters)")}</span>` : ""}</label><input id="au-pass" type="password" minlength="8" maxlength="72" autocomplete="${m === "up" ? "new-password" : "current-password"}"></div>`}
       <div id="captcha" class="captcha"></div>
-      <button class="btn btn--primary" type="button" data-auth-go>${m === "up" ? P("สมัครและเข้าสู่ระบบ", "Create account") : m === "forgot" ? P("ส่งลิงก์ตั้งรหัสใหม่", "Send reset link") : P("เข้าสู่ระบบ", "Sign in")}</button>
+      <button class="btn btn--primary" type="button" data-auth-go>${m === "up" ? P("สร้างบัญชี", "Create account") : m === "forgot" ? P("ส่งลิงก์ตั้งรหัสผ่านใหม่", "Send reset link") : P("เข้าสู่ระบบ", "Sign in")}</button>
       </div>
       ${m === "in" ? `<p class="small"><a href="#" data-auth-mode="forgot">${P("ลืมรหัสผ่าน", "Forgot password?")}</a></p>` : m === "forgot" ? `<p class="small"><a href="#" data-auth-mode="in">${P("กลับไปหน้าเข้าสู่ระบบ", "Back to sign in")}</a></p>` : ""}</div>`;
   }
   function authErr(msg) {
     if (/invalid_credentials|invalid login/i.test(msg)) return P("อีเมลหรือรหัสผ่านไม่ถูกต้อง", "Wrong email or password.");
     if (/email_not_confirmed|not confirmed/i.test(msg)) return P("ยังไม่ได้ยืนยันอีเมล กดลิงก์ในอีเมลที่เราส่งไปตอนสมัครก่อน", "Please confirm your email first using the link we sent when you signed up.");
-    if (/user_already_exists|already registered/i.test(msg)) return P("อีเมลนี้สมัครไว้แล้ว ลองเข้าสู่ระบบ หรือกดลืมรหัสผ่าน", "That email already has an account. Sign in, or use Forgot password.");
-    if (/weak_password|password/i.test(msg)) return P("รหัสผ่านสั้นหรือง่ายเกินไป ใช้อย่างน้อย 8 ตัว", "That password is too short or too simple. Use at least 8 characters.");
+    if (/user_already_exists|already registered/i.test(msg)) return P("อีเมลนี้มีบัญชีอยู่แล้ว กรุณาเข้าสู่ระบบ หรือเลือก “ลืมรหัสผ่าน”", "That email already has an account. Sign in, or use Forgot password.");
+    if (/weak_password|password/i.test(msg)) return P("รหัสผ่านสั้นหรือคาดเดาง่ายเกินไป กรุณาใช้อย่างน้อย 8 ตัวอักษร", "That password is too short or too simple. Use at least 8 characters.");
     if (/rate|seconds|many/i.test(msg)) return P("ทำรายการถี่เกินไป รอสักครู่แล้วลองใหม่", "Too many tries. Please wait a moment and try again.");
-    if (/captcha/i.test(msg)) return P("ตรวจสอบว่าไม่ใช่บอทไม่ผ่าน ลองใหม่อีกครั้ง", "The robot check didn't pass. Please try again.");
+    if (/captcha/i.test(msg)) return P("การตรวจสอบว่าไม่ใช่บอทไม่สำเร็จ กรุณาลองอีกครั้ง", "The robot check didn't pass. Please try again.");
     return P("ทำรายการไม่สำเร็จ ลองใหม่อีกครั้ง", "That didn't work. Please try again.");
   }
   let pwKeep = ""; // typed password survives a re-render for an error message; never stored
@@ -439,7 +439,7 @@
     const fe = BK.fieldErr;
     const field = (k, label, input) => `<div class="field${fe[k] ? " has-error" : ""}"><label for="f-${k}">${label}</label>${input}${fe[k] ? `<span class="err">${esc(fe[k])}</span>` : ""}</div>`;
     const main = `
-<header class="page-head"><div class="wrap"><h1>${P("จองรอบของคุณ", "Book your session")}</h1><p class="lede">${P(`${baht(C.price)} ต่อคน${pairOn() ? ` · 2 คน ${baht(C.pair_price)}` : ""} · ใช้บริการได้ ${C.duration / 60} ชั่วโมง · ชำระที่ร้าน`, `${baht(C.price)} per person${pairOn() ? ` · 2 people ${baht(C.pair_price)}` : ""} · ${C.duration / 60} hours · pay at the shop`)}</p></div></header>
+<header class="page-head"><div class="wrap"><h1>${P("จองรอบ", "Book your session")}</h1><p class="lede">${P(`${baht(C.price)} ต่อคน${pairOn() ? ` · 2 คน ${baht(C.pair_price)}` : ""} · ใช้บริการได้ ${C.duration / 60} ชั่วโมง · ชำระที่ร้าน`, `${baht(C.price)} per person${pairOn() ? ` · 2 people ${baht(C.pair_price)}` : ""} · ${C.duration / 60} hours · pay at the shop`)}</p></div></header>
 <section style="padding-bottom:40px"><div class="wrap">
   ${flashHTML()}${BK.err ? `<div class="alert alert--bad" role="alert">${ICON.alert}<p>${esc(BK.err)}</p></div>` : ""}
   <form class="book" id="book" novalidate>
@@ -448,12 +448,12 @@
         <div class="dates" role="group" aria-label="${P("วันที่", "Date")}">${list.map((k) => { const st = dayState(k); return `<button type="button" class="date" data-day="${k}" data-status="${st}" aria-pressed="${k === BK.day}"${st === "closed" ? " disabled" : ""} aria-label="${esc(dShort(k))}"><span class="w">${esc(wd(k))}</span><span class="n">${Number(k.slice(8))}</span><span class="m">${esc(mon(k))}</span><span class="a" aria-hidden="true">${st === "closed" ? P("ปิด", "Closed") : st === "full" ? P("เต็ม", "Full") : ""}</span></button>`; }).join("")}</div>
       </div>
       <div class="step"><div class="step-title"><span class="num" aria-hidden="true"></span><h2>${P("เลือกเวลา", "Choose a time")}</h2></div>
-        <p class="hint hint--top">${P(`อยู่ได้ ${C.duration / 60} ชั่วโมงนับจากเวลาที่เลือก`, `You can stay ${C.duration / 60} hours from your start time.`)}</p>
+        <p class="hint hint--top">${P(`ใช้บริการได้ ${C.duration / 60} ชั่วโมงนับจากเวลาที่เลือก`, `You can stay ${C.duration / 60} hours from your start time.`)}</p>
         ${!BK.day ? `<p class="state">${P("ช่วงนี้รอบเต็มหมดแล้ว โทรหาเราได้เลย", "Every session is booked up right now. Please call us.")}</p>` :
           !slots.some((s) => s.ok) ? `<p class="state">${P("วันนี้เต็มแล้ว ลองวันอื่น", "That day is full. Try another day.")}</p>` :
           `<div class="times" role="group">${slots.map((s) => `<button type="button" class="time" data-hm="${s.hm}" aria-pressed="${s.hm === BK.hm}"${s.ok ? "" : " disabled"}><b>${s.hm}</b>${s.remaining <= 0 ? `<span>${P("เต็ม", "Full")}</span>` : `<span class="until">${P("ถึง " + endOf(s.hm), "until " + endOf(s.hm))}</span>${s.remaining <= 3 ? `<span class="low">${slotNote(s)}</span>` : ""}`}</button>`).join("")}</div>`}
       </div>
-      <div class="step"><div class="step-title"><span class="num" aria-hidden="true"></span><h2>${P("มากี่คน", "How many people?")}</h2></div>
+      <div class="step"><div class="step-title"><span class="num" aria-hidden="true"></span><h2>${P("จำนวนผู้ใช้บริการ", "How many people?")}</h2></div>
         <div class="stepper" role="group" aria-label="${P("จำนวนคน", "Number of people")}">
           <button type="button" class="stepper-btn" data-pp="-1" aria-label="${P("ลดจำนวนคน", "Fewer people")}"${BK.people <= 1 ? " disabled" : ""}>−</button>
           <output class="stepper-val" aria-live="polite"><b>${BK.people}</b> ${P("คน", BK.people > 1 ? "people" : "person")}</output>
@@ -463,7 +463,7 @@
         <p class="hint">${pick && pick.remaining < (Number(C.max_group) || 8) ? P(`รอบ ${BK.hm} รับได้อีก ${pick.remaining} คน`, `The ${BK.hm} session has room for ${pick.remaining} more.`) : pairOn() ? P(`มา 2 คนจ่าย ${baht(C.pair_price)} มากกว่า ${C.max_group} คนหรืออยากเหมารอบ โทรหาเรา`, `Two people pay ${baht(C.pair_price)}. More than ${C.max_group}, or a private session? Call us.`) : P(`มากกว่า ${C.max_group} คนหรืออยากเหมารอบ โทรหาเรา`, `More than ${C.max_group}, or a private session? Call us.`)}</p>
       </div>
       <div class="step"><div class="step-title"><span class="num" aria-hidden="true"></span><h2>${P("ข้อมูลผู้จอง", "Your details")}</h2></div>
-        ${!cust ? loginPanel(P("เข้าสู่ระบบก่อนจอง ครั้งแรกกด สมัครใหม่ ใช้อีเมลและตั้งรหัสผ่าน", "Sign in to book. First time? Choose New account and set a password.")) : `${signedInLine()}
+        ${!cust ? loginPanel(P("เข้าสู่ระบบเพื่อจองรอบ หากยังไม่มีบัญชี เลือก “สมัครใหม่” แล้วกรอกอีเมลและตั้งรหัสผ่าน", "Sign in to book. If you don't have an account, choose New account and enter your email and a password.")) : `${signedInLine()}
         ${field("name", P("ชื่อ", "Name"), `<input type="text" id="f-name" data-bk="name" autocomplete="name" maxlength="120" value="${esc(BK.name)}">`)}
         <div class="row-2">
           ${field("phone", P("เบอร์โทร", "Phone"), `<input type="tel" id="f-phone" data-bk="phone" autocomplete="tel" inputmode="tel" maxlength="20" placeholder="08x-xxx-xxxx" value="${esc(BK.phone)}">`)}
@@ -539,7 +539,7 @@
     const moveDays = R.moveOpen ? await (async () => { try { return await rpc("availability", { p_from: today(), p_days: Math.min(Number(C.horizon_days) + 1, 42), p_people: b.people }); } catch (e) { return []; } })() : [];
     const md = R.moveDay && moveDays.find((d) => d.day === R.moveDay);
     return pubLayout(`<section class="section" style="padding-top:clamp(28px,5vw,56px)"><div class="wrap">
-  ${R.justBooked ? `<div class="alert alert--ok" role="status">${ICON.ok}<p>${P("จองเรียบร้อยแล้ว ดูการจองทั้งหมด เลื่อน หรือยกเลิกได้ทุกเมื่อที่เมนู", "You're booked. See, move or cancel your bookings any time under")} <a href="#my" data-go="my">${P("การจองของฉัน", "My bookings")}</a>${P(" (เข้าสู่ระบบด้วยอีเมลเดิม)", " (sign in with the same email)")}</p></div>` : ""}${flashHTML()}
+  ${R.justBooked ? `<div class="alert alert--ok" role="status">${ICON.ok}<p>${P("จองเรียบร้อยแล้ว ดูรายละเอียดและตัวเลือกเลื่อนหรือยกเลิกได้ที่", "You're booked. View booking details and available rescheduling or cancellation options in")} <a href="#my" data-go="my">${P("การจองของฉัน", "My bookings")}</a>${P(" (เข้าสู่ระบบด้วยอีเมลเดิม)", " (sign in with the same email)")}</p></div>` : ""}${flashHTML()}
   <article class="ticket">
     <div class="ticket-top"><p class="status"><span class="badge ${live ? "badge--ok" : "badge--bad"}">${st}</span></p><h1>${live ? P("แล้วพบกันที่สวน", "See you in the garden") : st}</h1>${live ? `<p class="muted">${P("มาก่อนเวลา 10–15 นาที และเตรียมชุดที่เปียกได้", "Please arrive 10–15 minutes early with clothes that can get wet.")}</p>` : ""}</div>
     <div class="ticket-body">
@@ -551,15 +551,15 @@
         <dt>${P("ชื่อ", "Name")}</dt><dd>${esc(b.name)}</dd>
         <dt>${P("ยอด", "Total")}</dt><dd>${baht(b.total)} ${b.pay === "paid" ? P("(ชำระแล้ว)", "(paid)") : b.pay === "due" ? P("(ชำระที่ร้าน)", "(pay at the shop)") : ""}</dd>
       </dl>
-      ${live ? `<div class="field"><label for="my-link">${P("ลิงก์หน้านี้ (เก็บไว้)", "This page's link (keep it)")}</label><div class="code-row"><input id="my-link" type="text" readonly value="${esc(link)}"><button class="btn btn--small" type="button" data-copy="${esc(link)}">${P("คัดลอก", "Copy")}</button></div></div>` : ""}
+      ${live ? `<div class="field"><label for="my-link">${P("เก็บลิงก์นี้ไว้ดูการจอง", "Save your booking link")}</label><div class="code-row"><input id="my-link" type="text" readonly value="${esc(link)}"><button class="btn btn--small" type="button" data-copy="${esc(link)}">${P("คัดลอก", "Copy")}</button></div></div>` : ""}
     </div>
   </article>
   ${b.status === "confirmed" ? `<div class="manage">
-    ${b.can_move ? `<details${R.moveOpen ? " open" : ""} data-move-toggle><summary>${P("เลื่อนวันหรือเวลา", "Move to another time")}</summary><div class="inner">
+    ${b.can_move ? `<details${R.moveOpen ? " open" : ""} data-move-toggle><summary>${P("เลื่อนวันหรือเวลา", "Reschedule your booking")}</summary><div class="inner">
       ${R.moveOpen ? `<div class="dates">${moveDays.map((d) => { const ok = d.slots.some((s) => s.ok); return `<button type="button" class="date" data-mday="${d.day}" aria-pressed="${d.day === R.moveDay}"${ok ? "" : " disabled"}><span class="w">${esc(wd(d.day))}</span><span class="n">${Number(d.day.slice(8))}</span><span class="m">${esc(mon(d.day))}</span></button>`; }).join("")}</div>
       ${md ? `<div class="times">${md.slots.map((s) => `<button type="button" class="time" data-mhm="${s.hm}" aria-pressed="${s.hm === R.moveHm}"${s.ok && !(md.day === b.day && s.hm === b.hm) ? "" : " disabled"}><b>${s.hm}</b><span class="${s.remaining > 0 && s.remaining <= 3 ? "low" : ""}">${s.remaining <= 0 ? P("เต็ม", "Full") : s.remaining <= 3 ? P("เหลือ " + s.remaining + " ที่", s.remaining + " left") : P("ถึง " + endHM(s.hm), "until " + endHM(s.hm))}</span></button>`).join("")}</div>` : ""}
       <button class="btn btn--primary mt-m" type="button" data-move-go${R.moveHm ? "" : " disabled"}>${P("ยืนยันเวลาใหม่", "Confirm new time")}</button>` : ""}
-      <p class="muted"><small>${P(`เลื่อนได้ ${C.max_moves} ครั้ง ก่อนเวลาเริ่ม ${C.cancel_hours} ชั่วโมง`, `One move, up to ${C.cancel_hours} hours before the start.`)}</small></p></div></details>` : ""}
+      <p class="muted"><small>${P(`เลื่อนได้ ${C.max_moves} ครั้ง ก่อนเวลาเริ่ม ${C.cancel_hours} ชั่วโมง`, `Reschedule up to ${C.max_moves} times, at least ${C.cancel_hours} hours before the start.`)}</small></p></div></details>` : ""}
     ${b.can_cancel ? `<details><summary>${P("ยกเลิกการจอง", "Cancel booking")}</summary><div class="inner"><p>${P("ยกเลิกแล้วที่นั่งจะเปิดให้คนอื่นจองทันที", "Your places will be released for others straight away.")}</p><button class="btn btn--danger" type="button" data-cancel data-confirm="${P("กดอีกครั้งเพื่อยืนยันการยกเลิก", "Tap again to confirm")}">${P("ยกเลิกการจองนี้", "Cancel this booking")}</button></div></details>` : ""}
     ${!b.can_move && !b.can_cancel ? `<p class="note-box">${esc(P("เลยกำหนดเปลี่ยนแปลงออนไลน์แล้ว กรุณาโทร ", "It's past the online change deadline. Please call ") + C.phone)}</p>` : ""}
   </div>` : ""}
@@ -573,7 +573,7 @@
     $$("[data-mhm]").forEach((b) => b.addEventListener("click", () => { R.moveHm = b.dataset.mhm; render(); }));
     const mg = $("[data-move-go]");
     if (mg) mg.addEventListener("click", async () => {
-      try { await rpc("move_booking", { p_ref: R.ref, p_token: R.token, p_day: R.moveDay, p_hm: R.moveHm }); R.flash = P("เลื่อนการจองเรียบร้อย", "Your booking was moved."); R.flashErr = ""; }
+      try { await rpc("move_booking", { p_ref: R.ref, p_token: R.token, p_day: R.moveDay, p_hm: R.moveHm }); R.flash = P("เลื่อนการจองเรียบร้อย", "Your booking has been rescheduled."); R.flashErr = ""; }
       catch (e) { R.flashErr = errText(e); R.flash = ""; }
       R.moveOpen = false; R.moveDay = ""; R.moveHm = ""; R.justBooked = false; render(); window.scrollTo(0, 0);
     });
@@ -1051,3 +1051,4 @@
   fromHash();
   render();
 })();
+
