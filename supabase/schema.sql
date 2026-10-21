@@ -167,6 +167,7 @@ create table if not exists waivers (
 );
 create index if not exists waivers_booking on waivers (booking_id);
 create index if not exists waivers_signed on waivers (signed_at);
+alter table waivers add column if not exists src text not null default '';  -- hashed network address, only for rate limits
 alter table waivers enable row level security;
 revoke all on waivers from anon, authenticated;
 
@@ -254,7 +255,7 @@ begin
          coalesce(o.blocked, false),
          coalesce((select sum(k.people)::int from bookings k
                    where k.day = p_day and k.hm = b.hm and k.status in ('confirmed','checked_in','no_show')
-                     and not (k.pay = 'await' and k.hold_until < now())), 0)
+                     and not (k.status = 'confirmed' and k.pay = 'await' and k.hold_until < now())), 0)
   from base b left join slot_overrides o on o.day = p_day and o.hm = b.hm
   order by b.hm;
 end $$;
@@ -460,7 +461,7 @@ create or replace function submit_slip(p_ref text, p_token uuid, p_image text) r
 language plpgsql volatile security definer set search_path = public as $$
 declare b bookings; s record;
 begin
-  if p_image is null or p_image !~ '^data:image/(jpeg|png|webp);base64,' or length(p_image) > 1500000 then raise exception 'slip'; end if;
+  if p_image is null or length(p_image) > 1500000 or p_image !~ '^data:image/(jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$' then raise exception 'slip'; end if;
   perform _expire_holds();
   select * into b from bookings where ref = upper(p_ref) and token = p_token for update;
   if not found then raise exception 'notfound'; end if;
@@ -520,29 +521,37 @@ end $$;
 create or replace function sign_waiver(p jsonb) returns jsonb
 language plpgsql volatile security definer set search_path = public as $$
 declare v_name text := btrim(coalesce(p->>'name', '')); v_sig text := coalesce(p->>'signature', ''); v_svc text := coalesce(p->>'services', 'both');
-  b bookings; w waivers;
+  b bookings; w waivers; h json; v_src text := '';
 begin
   if length(v_name) < 2 or length(v_name) > 120 then raise exception 'name'; end if;
   if not coalesce((p->>'agree')::boolean, false) then raise exception 'agree'; end if;
-  if v_sig !~ '^data:image/png;base64,' or length(v_sig) < 600 or length(v_sig) > 400000 then raise exception 'signature'; end if;
+  if length(v_sig) < 600 or length(v_sig) > 200000 or v_sig !~ '^data:image/png;base64,[A-Za-z0-9+/]+={0,2}$' then raise exception 'signature'; end if;
   if v_svc not in ('cold','sauna','both') then v_svc := 'both'; end if;
-  if coalesce(p->>'ref', '') <> '' then
-    select * into b from bookings where ref = upper(btrim(p->>'ref'));
+  begin
+    h := nullif(current_setting('request.headers', true), '')::json;
+    v_src := coalesce(nullif(h->>'cf-connecting-ip', ''), nullif(split_part(coalesce(h->>'x-forwarded-for', ''), ',', 1), ''), '');
+    if v_src <> '' then v_src := md5('pfd:' || btrim(v_src)); end if;
+  exception when others then v_src := '';
+  end;
+  if v_src <> '' and (select count(*) from waivers where src = v_src and signed_at > now() - interval '1 hour') >= 20 then raise exception 'too_many'; end if;
+  if coalesce(p->>'ref', '') <> '' and coalesce(p->>'token', '') ~ '^[0-9a-fA-F-]{36}$' then
+    select * into b from bookings where ref = upper(btrim(p->>'ref')) and token = (p->>'token')::uuid;
     if found and (select count(*) from waivers where booking_id = b.id) >= b.people + 2 then raise exception 'too_many'; end if;
   end if;
-  if (select count(*) from waivers where signed_at > now() - interval '10 minutes') > 60 then raise exception 'too_many'; end if;
-  insert into waivers (booking_id, name, services, signature, version, lang)
-  values (b.id, v_name, v_svc, v_sig, 'v1', case when p->>'lang' = 'en' then 'en' else 'th' end) returning * into w;
+  if b.id is null and (select count(*) from waivers where booking_id is null and signed_at > now() - interval '1 day') >= 300 then raise exception 'too_many'; end if;
+  insert into waivers (booking_id, name, services, signature, version, lang, src)
+  values (b.id, v_name, v_svc, v_sig, 'v1', case when p->>'lang' = 'en' then 'en' else 'th' end, v_src) returning * into w;
   if b.id is not null then perform _log(b.ref, 'ลงชื่อรับทราบความเสี่ยง: ' || v_name); end if;
   return jsonb_build_object('id', w.id, 'signed', (select count(*) from waivers where booking_id = b.id), 'people', b.people, 'ref', b.ref, 'name', b.name);
 end $$;
 
--- what the waiver page shows about a booking (no personal details beyond the booking name)
-create or replace function waiver_booking(p_ref text) returns jsonb
+-- what the waiver page shows about a booking; needs the booking's private token (from the booking page or email link)
+drop function if exists waiver_booking(text);
+create or replace function waiver_booking(p_ref text, p_token uuid) returns jsonb
 language sql stable security definer set search_path = public as $$
   select jsonb_build_object('ref', b.ref, 'day', b.day, 'hm', b.hm, 'people', b.people, 'name', b.name,
     'signed', (select count(*) from waivers w where w.booking_id = b.id))
-  from bookings b where b.ref = upper(btrim(p_ref)) and b.status in ('confirmed','checked_in') $$;
+  from bookings b where b.ref = upper(btrim(p_ref)) and b.token = p_token and b.status in ('confirmed','checked_in') $$;
 
 -- ---------- staff (signed in with Supabase Auth) ----------
 drop function if exists staff_me();
@@ -652,9 +661,10 @@ begin
   if not found then raise exception 'notfound'; end if;
   if b.status <> 'confirmed' then raise exception 'change_closed'; end if;
   update bookings set status = 'checked_in', checked_at = now(),
-         pay = case when pay in ('due','await','review') and coalesce(p_method, '') <> '' then 'paid' else pay end,
+         pay = case when pay in ('due','await','review') and coalesce(p_method, '') <> '' then 'paid' when pay = 'await' then 'due' else pay end,
          method = case when pay in ('due','await','review') and coalesce(p_method, '') <> '' then p_method else method end,
-         paid_at = case when pay in ('due','await','review') and coalesce(p_method, '') <> '' then now() else paid_at end
+         paid_at = case when pay in ('due','await','review') and coalesce(p_method, '') <> '' then now() else paid_at end,
+         hold_until = null
    where id = b.id returning * into b;
   perform _log(b.ref, 'เช็คอิน' || case when b.pay = 'paid' and coalesce(p_method, '') <> '' then ' รับเงิน ' || p_method else '' end);
   return _booking_json(b);
@@ -698,14 +708,14 @@ begin
   select * into b from bookings where ref = upper(p_ref) for update;
   if not found then raise exception 'notfound'; end if;
   if p_status = 'no_show' and b.status = 'confirmed' then
-    update bookings set status = 'no_show' where id = b.id returning * into b;
+    update bookings set status = 'no_show', pay = case when pay = 'await' then 'due' else pay end, hold_until = null where id = b.id returning * into b;
   elsif p_status = 'waiting' and b.status = 'confirmed' then
-    update bookings set status = 'waiting' where id = b.id returning * into b;
+    update bookings set status = 'waiting', pay = case when pay = 'await' then 'due' else pay end, hold_until = null where id = b.id returning * into b;
   elsif p_status = 'cancelled' and b.status in ('confirmed','no_show','waiting') then
     update bookings set status = 'cancelled', cancelled_at = now(), pay_before = pay, pay = case when pay in ('due','await') then 'none' else pay end
      where id = b.id returning * into b;
   elsif p_status = 'confirmed' and b.status in ('checked_in','no_show') then
-    update bookings set status = 'confirmed', checked_at = null where id = b.id returning * into b;
+    update bookings set status = 'confirmed', checked_at = null, pay = case when pay = 'await' then 'due' else pay end, hold_until = null where id = b.id returning * into b;
   else raise exception 'change_closed';
   end if;
   perform _log(b.ref, 'เปลี่ยนสถานะเป็น ' || p_status);
@@ -758,7 +768,8 @@ begin
   if b.status = 'confirmed' and b.day = p_day and b.hm = p_hm then free_now := free_now + b.people; end if;
   if free_now < b.people and not coalesce(p_over, false) then raise exception 'slot_full'; end if;
   old := case when b.status = 'waiting' then 'รอนัดวันใหม่' else b.day || ' ' || b.hm end;
-  update bookings set day = p_day, hm = p_hm, status = 'confirmed' where id = b.id returning * into b;
+  update bookings set day = p_day, hm = p_hm, status = 'confirmed', pay = case when pay = 'await' then 'due' else pay end, hold_until = null
+   where id = b.id returning * into b;
   perform _log(b.ref, 'ย้ายรอบจาก ' || old);
   return _staff_json(b);
 end $$;
@@ -1036,7 +1047,7 @@ begin
 end $$;
 
 grant execute on function public_config(), availability(date, int, int), get_booking(text, uuid),
-  find_booking(text, text), cancel_booking(text, uuid), move_booking(text, uuid, date, text), submit_slip(text, uuid, text), sign_waiver(jsonb), waiver_booking(text) to anon, authenticated;
+  find_booking(text, text), cancel_booking(text, uuid), move_booking(text, uuid, date, text), submit_slip(text, uuid, text), sign_waiver(jsonb), waiver_booking(text, uuid) to anon, authenticated;
 grant execute on function create_booking(jsonb), my_bookings(), my_profile(), save_profile(jsonb), verify_email() to authenticated;
 grant execute on function staff_me(text), staff_day(date), staff_search(text), staff_booking(text), staff_create_booking(jsonb),
   staff_checkin(text, text), staff_take_payment(text, text), staff_set_status(text, text), staff_move(text, date, text, boolean),

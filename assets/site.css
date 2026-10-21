@@ -1098,3 +1098,10 @@ body[data-mode=adm]{background:#f6f5ee}
 .q-page .q-qr .qr { width: 100%; height: auto; }
 @media (max-width: 560px) { .q-page .q-qr { grid-template-columns: 1fr; } }
 @media print { .q-page > .q-wrap > :not(.q-qr) { display: none !important; } .q-page .q-qr { border: 0; } .q-page .q-qr button { display: none; } }
+
+/* pay box details */
+.pub .paybox--done p svg, .pub .paybox p svg { width: 22px; height: 22px; flex: none; margin-top: 2px; }
+.pub .qr-wrap .btn { margin-top: 10px; }
+.pub .qr-tip { font-size: .82rem; color: var(--muted, #5d675f); margin: 8px 0 0; line-height: 1.5; }
+@media (min-width: 720px) { .pub .qr-tip { display: none; } }
+.pub .slip-field input[type=file]::file-selector-button { font: inherit; border: 1px solid var(--line-2); background: var(--paper, #f6f4ec); border-radius: 10px; padding: 8px 14px; margin-right: 10px; cursor: pointer; }

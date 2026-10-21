@@ -212,6 +212,8 @@
       img.src = url;
     });
   }
+  // one CSV cell: text that a spreadsheet would run as a formula gets a leading apostrophe, then quote if needed
+  const csvCell = (v) => { let t = String(v == null ? "" : v); if (/^[=+\-@\t\r]/.test(t) && !/^-?\d+(\.\d+)?$/.test(t)) t = "'" + t; return /[",\n\r]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t; };
   const hasPayInfo = () => !!(C.promptpay || C.bank_account);
   const errText = (e) => { const m = ERR[e && e.code] || ERR[e && e.message]; return m ? P(m[0], m[1]) : P("ระบบขัดข้อง ลองใหม่อีกครั้ง", "Something went wrong. Please try again."); };
 
@@ -570,13 +572,15 @@
   // ---------- paying for an online booking: PromptPay QR, then the slip ----------
   let holdTimer = null;
   function payBox(b, owe, checking, lapsed) {
-    if (checking) return `<div class="paybox"><p>${ICON.ok} ${P("ทีมงานกำลังตรวจสลิป ระหว่างนี้ที่นั่งของคุณถูกกันไว้แล้ว ไม่ต้องทำอะไรเพิ่ม", "Our team is checking your slip. Your places are held; there's nothing else to do.")}</p></div>`;
+    if (checking) return `<div class="paybox paybox--done"><p>${ICON.ok} ${P("ทีมงานกำลังตรวจสลิป ระหว่างนี้ที่นั่งของคุณถูกกันไว้แล้ว ไม่ต้องทำอะไรเพิ่ม", "Our team is checking your slip. Your places are held; there's nothing else to do.")}</p></div>`;
     const payload = C.promptpay ? promptPayPayload(C.promptpay, b.total) : "";
     return `<section class="paybox" aria-labelledby="pay-h">
     <div class="paybox-head"><h2 id="pay-h">${lapsed ? P("โอนแล้วแต่ไม่ทัน?", "Paid but ran out of time?") : P("ชำระเงิน", "Pay now")}</h2>${owe && b.hold_until ? `<p class="hold" data-hold="${esc(b.hold_until)}">${P("เหลือเวลา", "Time left")} <b data-left>–</b></p>` : ""}</div>
     ${lapsed ? `<p class="muted">${P("ถ้าโอนไปแล้ว แนบสลิปได้เลย ถ้ารอบนี้ยังว่าง ระบบจะคืนที่ให้ทันที", "If you've already paid, attach the slip. If the session still has room, we'll put your booking back.")}</p>` : ""}
     <div class="paybox-body">
-      ${payload ? `<figure class="qr-wrap">${qrSVG(payload)}<figcaption>${P("สแกนด้วยแอปธนาคาร ยอดขึ้นให้อัตโนมัติ", "Scan with your banking app; the amount fills in")}</figcaption></figure>` : ""}
+      ${payload ? `<figure class="qr-wrap">${qrSVG(payload)}<figcaption>${P("สแกนด้วยแอปธนาคาร ยอดขึ้นให้อัตโนมัติ", "Scan with your banking app; the amount fills in")}</figcaption>
+        <button class="btn btn--small" type="button" data-qrsave="${esc(b.ref)}">${P("บันทึกรูป QR", "Save QR image")}</button>
+        <p class="qr-tip">${P("จองในมือถือเครื่องเดียวกับที่ใช้จ่าย? บันทึกรูป QR แล้วเปิดแอปธนาคาร เลือก “สแกน” → “รูปภาพ”", "Paying on this same phone? Save the QR, then in your banking app choose Scan → from photo.")}</p></figure>` : ""}
       <div class="pay-info">
         <p class="pay-amt"><small>${P("ยอดโอน", "Amount")}</small><b>${baht(b.total)}</b></p>
         ${C.promptpay ? `<p><small>${P("พร้อมเพย์", "PromptPay")}</small><span class="mono">${esc(C.promptpay)}</span></p>` : ""}
@@ -612,6 +616,19 @@
       };
       tick(); holdTimer = setInterval(tick, 1000);
     }
+    const qs = $("[data-qrsave]");
+    if (qs) qs.addEventListener("click", () => {
+      const svg = $(".qr-wrap svg"); if (!svg) return;
+      const img = new Image(), px = 720;
+      img.onload = () => {
+        const cv = document.createElement("canvas"); cv.width = px; cv.height = px + 110;
+        const cx = cv.getContext("2d"); cx.fillStyle = "#fff"; cx.fillRect(0, 0, cv.width, cv.height); cx.imageSmoothingEnabled = false; cx.drawImage(img, 0, 0, px, px);
+        cx.fillStyle = "#22302a"; cx.textAlign = "center"; cx.font = "600 34px sans-serif"; cx.fillText("Peaceful Day · " + qs.dataset.qrsave, px / 2, px + 50);
+        cx.font = "28px sans-serif"; cx.fillText($(".pay-amt b").textContent, px / 2, px + 92);
+        const a = document.createElement("a"); a.download = "peacefulday-" + qs.dataset.qrsave + ".png"; a.href = cv.toDataURL("image/png"); document.body.appendChild(a); a.click(); a.remove();
+      };
+      img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(new XMLSerializer().serializeToString(svg));
+    });
     const f = $("#slip"), send = $("[data-slip-send]");
     if (!f || !send) return;
     f.addEventListener("change", () => { send.disabled = !f.files.length; });
@@ -668,7 +685,7 @@
     ${!b.can_cancel && (b.pay === "paid" || b.pay === "review") ? `<p class="muted small">${esc(P("ชำระเงินแล้ว ถ้าต้องการยกเลิก กรุณาโทร ", "Already paid. To cancel, please call ") + C.phone)}</p>` : ""}
     ${!b.can_move && !b.can_cancel ? `<p class="note-box">${esc(P("เลยกำหนดเปลี่ยนแปลงออนไลน์แล้ว กรุณาโทร ", "It's past the online change deadline. Please call ") + C.phone)}</p>` : ""}
   </div>` : ""}
-  ${live && !owe ? `<div class="note-box waiver-cta"><p><b>${P("ลงชื่อรับทราบความเสี่ยงล่วงหน้า", "Sign the risk acknowledgment ahead")}</b> ${P("ทุกคนในกลุ่มต้องลงชื่อก่อนใช้บริการ ทำในมือถือตอนนี้ได้เลย ถึงร้านจะได้เข้าใช้ทันที", "Everyone in your group signs before their session. Do it on your phone now and go straight in when you arrive.")}</p><a class="btn btn--small btn--primary" href="#waiver/${esc(b.ref)}">${P("ลงชื่อ", "Sign")}</a></div>` : ""}
+  ${live && !owe ? `<div class="note-box waiver-cta"><p><b>${P("ลงชื่อรับทราบความเสี่ยงล่วงหน้า", "Sign the risk acknowledgment ahead")}</b> ${P("ทุกคนในกลุ่มต้องลงชื่อก่อนใช้บริการ ทำในมือถือตอนนี้ได้เลย ถึงร้านจะได้เข้าใช้ทันที", "Everyone in your group signs before their session. Do it on your phone now and go straight in when you arrive.")}</p><a class="btn btn--small btn--primary" href="#waiver/${esc(b.ref)}/${esc(R.token)}">${P("ลงชื่อ", "Sign")}</a></div>` : ""}
   <p class="mt-m"><a class="btn" href="#book" data-go="book">${P("จองรอบอื่น", "Book another session")}</a></p>
 </div></section>`);
   }
@@ -709,7 +726,7 @@
     const fe = R.pfErr || {};
     const field = (k, label, input, opt) => `<div class="field${fe[k] ? " has-error" : ""}"><label for="pf-${k}">${label}${opt ? ` <span class="muted small">${P("(ไม่บังคับ)", "(optional)")}</span>` : ""}</label>${input}${fe[k] ? `<span class="err">${esc(fe[k])}</span>` : ""}</div>`;
     const g = (v, th, en) => `<label class="radio"><input type="radio" name="pf-gender" value="${v}"${F.gender === v ? " checked" : ""}><span>${P(th, en)}</span></label>`;
-    return pubLayout(`<header class="page-head"><div class="wrap"><h1>${first ? P("กรอกข้อมูลสมาชิก", "Complete your profile") : P("ข้อมูลสมาชิก", "Your profile")}</h1>${first ? `<p class="lede">${P("กรอกครั้งเดียว ครั้งต่อไปจองได้เลยไม่ต้องกรอกซ้ำ", "Fill this in once and booking is quicker next time.")}</p>` : ""}</div></header>
+    return pubLayout(`<header class="page-head"><div class="wrap"><h1>${!cust ? P("ข้อมูลสมาชิก", "Your profile") : first ? P("กรอกข้อมูลสมาชิก", "Complete your profile") : P("ข้อมูลสมาชิก", "Your profile")}</h1>${first && cust ? `<p class="lede">${P("กรอกครั้งเดียว ครั้งต่อไปจองได้เลยไม่ต้องกรอกซ้ำ", "Fill this in once and booking is quicker next time.")}</p>` : ""}</div></header>
 <section class="section" style="padding-top:8px"><div class="wrap">${flashHTML()}
   ${!cust ? `<div class="panel" style="max-width:520px">${loginPanel(P("เข้าสู่ระบบก่อน", "Please sign in first."))}</div>` : `
   <form class="panel profile-form" id="pf" novalidate>
@@ -786,7 +803,7 @@
         ["ดูภาพรวมของร้าน เช่น จำนวนผู้ใช้บริการต่อวัน โดยไม่ระบุตัวบุคคล", "To see overall figures, such as visits per day, without identifying anyone."]]],
       ["ใครเห็นข้อมูลของคุณ", "Who can see your data", [
         ["ทีมงานของร้านที่ดูแลการจอง เห็นชื่อ เบอร์ และรายละเอียดการจองเท่าที่จำเป็นต่อการให้บริการ", "Our booking team sees your name, number and booking details, as needed to serve you."],
-        ["ผู้ให้บริการระบบที่เราใช้: Supabase (ฐานข้อมูลและบัญชีผู้ใช้), Resend (ส่งอีเมล), Cloudflare (ตรวจว่าไม่ใช่บอทและโดเมน), GitHub Pages (เว็บไซต์) ข้อมูลบางส่วนอาจถูกจัดเก็บหรือประมวลผลบนเซิร์ฟเวอร์นอกประเทศไทย", "Service providers we use: Supabase (database and accounts), Resend (email), Cloudflare (robot check and domain) and GitHub Pages (website). Some data may be stored or processed on servers outside Thailand."],
+        ["ผู้ให้บริการระบบที่เราใช้: Supabase (ฐานข้อมูลและบัญชีผู้ใช้), EasySlip (ตรวจสลิปโอนเงินอัตโนมัติ), Resend (ส่งอีเมล), Cloudflare (ตรวจว่าไม่ใช่บอทและโดเมน), GitHub Pages (เว็บไซต์) ข้อมูลบางส่วนอาจถูกจัดเก็บหรือประมวลผลบนเซิร์ฟเวอร์นอกประเทศไทย", "Service providers we use: Supabase (database and accounts), EasySlip (automatic transfer-slip checks), Resend (email), Cloudflare (robot check and domain) and GitHub Pages (website). Some data may be stored or processed on servers outside Thailand."],
         ["เราไม่ขายข้อมูลของคุณ และจะเปิดเผยต่อหน่วยงานรัฐเฉพาะเมื่อกฎหมายกำหนด", "We do not sell your data, and only disclose it to authorities when the law requires."]]],
       ["สิทธิของคุณ", "Your rights", [
         ["ดูและแก้ไขชื่อ เบอร์ วันเกิด เพศ และการรับข่าวสารได้เองที่หน้าข้อมูลสมาชิก", "View and edit your name, number, date of birth, gender and marketing choice on your profile page."],
@@ -860,7 +877,7 @@
   async function viewWaiver() {
     const W = WAIVER[lang === "en" ? "en" : "th"], F = R.wf || (R.wf = { name: "", services: "both", agree: false });
     let bk = null;
-    if (R.wref) { try { bk = await rpc("waiver_booking", { p_ref: R.wref }); } catch (e) { bk = null; } }
+    if (R.wref && R.wtok) { try { bk = await rpc("waiver_booking", { p_ref: R.wref, p_token: R.wtok }); } catch (e) { bk = null; } }
     if (bk && !F.name && !bk.signed && !R.wdone) F.name = bk.name;
     if (R.wdone) {
       const d = R.wdone, more = d.people && d.signed < d.people;
@@ -906,7 +923,7 @@
       if (inked < 40) { const pad = $(".sigpad"); pad.classList.add("has-error"); const m = $("#sig-err"); m.textContent = P("กรุณาลงลายมือชื่อในกรอบ", "Please sign in the box."); pad.scrollIntoView({ block: "center" }); return; }
       const go2 = $("#w-go"); go2.disabled = true;
       try {
-        const res = await rpc("sign_waiver", { p: { ref: R.wref || "", name: F.name, services: F.services, agree: true, signature: cv.toDataURL("image/png"), lang } });
+        const res = await rpc("sign_waiver", { p: { ref: R.wref || "", token: R.wtok || "", name: F.name, services: F.services, agree: true, signature: cv.toDataURL("image/png"), lang } });
         R.wdone = res; R.flashErr = ""; R.wf = { name: "", services: "both", agree: false };
       } catch (err) { R.flashErr = errText(err); }
       render(); window.scrollTo(0, 0);
@@ -1103,7 +1120,7 @@
   // the customer's slip, with the button that confirms the transfer
   function slipCard(b, slip) {
     return `<section class="card slip-card"><h2>สลิปโอนเงิน</h2><p class="muted small">ส่งเมื่อ ${esc(dt(slip.at))} · ยอดที่ต้องได้ <b>${baht(b.total)}</b></p>${slip.result ? `<p class="small">ระบบตรวจอัตโนมัติ: ${esc(slip.result)}</p>` : ""}
-      <a href="${slip.data}" target="_blank" rel="noopener" class="slip-img"><img src="${slip.data}" alt="สลิปโอนเงินของ ${esc(b.name)}"></a>
+      <a href="${esc(slip.data)}" target="_blank" rel="noopener" class="slip-img"><img src="${esc(slip.data)}" alt="สลิปโอนเงินของ ${esc(b.name)}"></a>
       ${b.pay === "review" ? `<div class="btn-row" style="margin-top:10px"><button class="btn btn--primary" type="button" data-slipok="${esc(b.ref)}">ยอดถูกต้อง ยืนยันรับโอน</button><button class="btn btn--small btn--danger" type="button" data-slipno="${esc(b.ref)}" data-confirm="กดอีกครั้ง: ยกเลิกการจองนี้">สลิปไม่ถูกต้อง ยกเลิกคิว</button></div><p class="muted small">เช็คในแอปธนาคารว่าเงินเข้าจริงก่อนกดยืนยัน</p>` : ""}</section>`;
   }
   function bindSlipButtons() {
@@ -1216,7 +1233,7 @@
       const list = await rpc("staff_customers", { p_q: "" }, true);
       const head = ["ชื่อ", "นามสกุล", "เบอร์โทร", "อีเมล", "อีเมลยืนยันแล้ว", "วันเกิด", "เพศ", "ยินยอมรับข่าวสาร", "จอง (ครั้ง)", "มาแล้ว (ครั้ง)", "ยอดรวม (บาท)", "มาล่าสุด/นัดถัดไป", "สมัครเมื่อ"];
       const G = { male: "ชาย", female: "หญิง", unspecified: "ไม่ระบุ" };
-      const cell = (v) => { const t = String(v == null ? "" : v); return /[",\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t; };
+      const cell = csvCell;
       const rows = list.map((c) => [c.first_name, c.last_name, c.phone ? "'" + c.phone : "", c.email, c.email_verified ? "ใช่" : "", c.birth_date || "", G[c.gender] || "", c.marketing_consent ? "ยินยอม" : "", c.bookings, c.visits, c.spent, c.last_day || "", dt(c.created_at)]);
       const blob = new Blob(["\ufeff" + [head].concat(rows).map((r) => r.map(cell).join(",")).join("\r\n")], { type: "text/csv;charset=utf-8" });
       const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "peacefulday-members-" + today() + ".csv"; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
@@ -1247,8 +1264,8 @@
 
   // ================= queue page: a separate, simple page for admins who take bookings for customers =================
   const PT = { online: ["ชำระออนไลน์", "online"], venue: ["ชำระหน้าร้าน", "venue"], package: ["คูปองแพ็กเกจ", "package"], free: ["ไม่มีค่าใช้จ่าย (รีวิว/Influ)", "free"] };
-  const payType = (b) => (b.pay === "none" ? "free" : b.pay === "due" ? "venue" : b.pay === "await" ? "await" : b.pay === "review" ? "review" : b.method === "package" || b.package ? "package" : "online");
-  const PT_SHOW = Object.assign({ await: ["รอลูกค้าโอน", "await"], review: ["รอตรวจสลิป", "review"] }, PT);
+  const payType = (b) => (b.pay === "none" ? "free" : b.pay === "due" ? "venue" : b.pay === "await" ? "await" : b.pay === "review" ? "review" : b.pay === "expired" ? "expired" : b.method === "package" || b.package ? "package" : "online");
+  const PT_SHOW = Object.assign({ await: ["รอลูกค้าโอน", "await"], review: ["รอตรวจสลิป", "review"], expired: ["หมดเวลาชำระ", "free"] }, PT);
   const PKGS = ["Happy Duo", "Happy Duo+1", "Happy Duo+2", "Happy Duo*2", "Happy Group", "Member 1"];
   const cleanNote = (n) => (n || "").replace(/^นำเข้าจาก Google Sheet:?\s*/, "").replace(/\s*\(จ่ายแล้วก่อนย้ายระบบ\)$/, "");
   function qHeader() {
@@ -1268,8 +1285,8 @@
       <div class="q-who"><b>${esc(b.name)}</b> <span class="muted">${b.people} คน${b.phone ? " · " + esc(fmtPhone(b.phone)) : ""}${o.when ? " · " + esc(dShort(b.day, "th-TH")) + " " + esc(b.hm) : ""}</span>${note ? `<span class="q-note">${esc(note)}</span>` : ""}</div>
       <span class="q-tags">${b.status === "checked_in" ? '<span class="badge badge--ok">มาแล้ว</span>' : b.status === "no_show" ? '<span class="badge badge--bad">ไม่มา</span>' : b.status === "cancelled" ? '<span class="badge badge--bad">ยกเลิก</span>' : b.status === "waiting" ? '<span class="badge badge--warn">รอนัดวันใหม่</span>' : ""}${t === "venue" && b.status !== "cancelled" ? `<span class="badge badge--warn">เก็บ ${baht(b.total)}</span>` : ""}${t === "await" && b.status !== "cancelled" ? `<span class="badge badge--muted">รอโอน ถึง ${esc(new Date(b.hold_until).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok" }))}</span>` : ""}${b.status !== "cancelled" && b.status !== "waiting" ? `<button class="badge ${b.signed >= b.people ? "badge--ok" : "badge--muted"} badge-btn" type="button" data-qsig="${esc(b.ref)}" title="ดูลายเซ็นรับทราบความเสี่ยง">ลงชื่อ ${b.signed || 0}/${b.people}</button>` : ""}${t === "review" && b.status !== "cancelled" ? `<button class="badge badge--warn badge-btn" type="button" data-qslip="${esc(b.ref)}">ดูสลิป ${baht(b.total)}</button>` : ""}</span>
       <span class="q-act">${b.status === "cancelled" ? `<span class="muted small">${b.cancelled_at ? "ยกเลิก " + esc(dt(b.cancelled_at)) : ""}${b.pay === "expired" ? " · หมดเวลาชำระ" : ""}${(b.pay === "paid" || b.pay === "review") && b.total > 0 && b.method !== "package" ? " · <b>ลูกค้าจ่ายแล้ว ต้องคืนเงิน?</b>" : ""}</span><button class="btn btn--small" type="button" data-qrestore="${esc(b.ref)}" data-confirm="กดอีกครั้งเพื่อกู้คืน">กู้คืนคิว</button>` : ""}${o.waiting ? `<button class="btn btn--small btn--primary" type="button" data-qre="${esc(b.ref)}">นัดวันใหม่</button>` : b.status === "confirmed" && !o.when ? `<button class="btn btn--small btn--primary" type="button" data-qin="${esc(b.ref)}" data-due="${owes(b) ? 1 : 0}">เช็คอิน</button>` : ""}${b.status !== "cancelled" ? `<button class="btn btn--small btn--ghost" type="button" data-qmore="${esc(b.ref)}" aria-expanded="${open}">⋯</button>` : ""}</span>
-      ${R.qCheckin === b.ref ? `<div class="q-panel">รับเงิน ${baht(b.total)} ด้วย ${Object.entries(METHOD).map(([k, l]) => `<button class="btn btn--small btn--primary" type="button" data-qpay="${k}">${l}</button>`).join("")}<button class="btn btn--small" type="button" data-qpay="">ยังไม่รับเงิน</button></div>` : ""}
-      ${R.qSig === b.ref ? `<div class="q-panel q-sigs">${(R.qSigData || []).length ? R.qSigData.map((w) => `<figure><img src="${w.signature}" alt="ลายเซ็นของ ${esc(w.name)}"><figcaption><b>${esc(w.name)}</b> · ${{ cold: "อ่างน้ำเย็น", sauna: "ซาวน่า", both: "ทั้งสองบริการ" }[w.services] || ""} · ${esc(dt(w.signed_at))}</figcaption></figure>`).join("") : '<span class="muted">ยังไม่มีใครลงชื่อ</span>'}</div>` : ""}
+      ${R.qCheckin === b.ref ? `<div class="q-panel">${b.pay === "review" ? `<span class="small"><b>ลูกค้าแนบสลิปแล้ว</b> ตรวจสลิปก่อน จะได้ไม่เก็บเงินซ้ำ <button class="btn btn--small" type="button" data-qslip="${esc(b.ref)}">ดูสลิป</button> หรือ </span>` : ""}รับเงิน ${baht(b.total)} ด้วย ${Object.entries(METHOD).map(([k, l]) => `<button class="btn btn--small btn--primary" type="button" data-qpay="${k}">${l}</button>`).join("")}<button class="btn btn--small" type="button" data-qpay="">ยังไม่รับเงิน</button></div>` : ""}
+      ${R.qSig === b.ref ? `<div class="q-panel q-sigs">${(R.qSigData || []).length ? R.qSigData.map((w) => `<figure><img src="${esc(w.signature)}" alt="ลายเซ็นของ ${esc(w.name)}"><figcaption><b>${esc(w.name)}</b> · ${{ cold: "อ่างน้ำเย็น", sauna: "ซาวน่า", both: "ทั้งสองบริการ" }[w.services] || ""} · ${esc(dt(w.signed_at))}</figcaption></figure>`).join("") : '<span class="muted">ยังไม่มีใครลงชื่อ</span>'}</div>` : ""}
       ${R.qSlip === b.ref ? `<div class="q-panel q-slip">${R.qSlipData ? slipCard(b, R.qSlipData) : '<span class="muted">กำลังโหลดสลิป…</span>'}</div>` : ""}
       ${open ? `<div class="q-panel">${b.status === "confirmed" ? `<button class="btn btn--small" type="button" data-qst="waiting|${esc(b.ref)}">ย้ายไปรอนัดวันใหม่</button><button class="btn btn--small" type="button" data-qst="no_show|${esc(b.ref)}">ไม่มา</button>` : ""}${b.status === "checked_in" || b.status === "no_show" ? `<button class="btn btn--small" type="button" data-qst="confirmed|${esc(b.ref)}">ย้อนเป็นจองแล้ว</button>` : ""}${["confirmed", "waiting", "no_show"].includes(b.status) ? `<button class="btn btn--small btn--danger" type="button" data-qst="cancelled|${esc(b.ref)}" data-confirm="กดอีกครั้งเพื่อยกเลิก">ยกเลิกคิว</button>` : ""}<span class="muted small">${esc(b.ref)} · ${CH[b.channel] || esc(b.channel)}</span>${ME.role !== "staff" ? ` <a class="small" href="#abooking" data-aref="${esc(b.ref)}">รายละเอียด</a>` : ""}</div>` : ""}
     </li>`;
@@ -1315,8 +1332,8 @@
       <div class="q-dayhead"><button class="btn" type="button" data-qday="${addDays(d, -1)}" aria-label="วันก่อน">‹</button><h2>${esc(dLong(d, "th-TH"))}${day.holiday != null ? ` <span class="badge badge--warn">วันหยุดนักขัตฯ</span>` : ""}</h2><input type="date" id="qdate" value="${d}" aria-label="ไปวันที่"><button class="btn" type="button" data-qday="${addDays(d, 1)}" aria-label="วันถัดไป">›</button><button class="btn" type="button" data-qday="${today()}">วันนี้</button></div>
       <div class="q-stats">${stat(live.reduce((a, b) => a + b.people, 0), "คนที่จอง")}${stat(all.filter((b) => b.status === "checked_in").reduce((a, b) => a + b.people, 0), "มาแล้ว")}${stat(all.filter((b) => b.status === "confirmed" && owes(b)).length, "ยังไม่ชำระ")}${stat(all.filter((b) => payType(b) === "package").length, "ใช้คูปอง")}${day.cancelled ? `<button class="q-stat q-stat-btn" type="button" data-qtab="cancelled"><b>${day.cancelled}</b> ยกเลิก</button>` : stat(0, "ยกเลิก")}</div>
       <p class="small"><button class="btn btn--small btn--ghost" type="button" data-qsig="*">${R.qSig === "*" ? "ปิดลายเซ็น" : "ดูลายเซ็นทั้งหมดที่ลงวันนี้ (รวม walk-in)"}</button></p>
-      ${R.qSig === "*" ? `<div class="card q-sigs">${(R.qSigData || []).length ? R.qSigData.map((w) => `<figure><img src="${w.signature}" alt="ลายเซ็นของ ${esc(w.name)}"><figcaption><b>${esc(w.name)}</b>${w.ref ? " · " + esc(w.ref) : " · ไม่มีรหัสจอง"} · ${{ cold: "อ่างน้ำเย็น", sauna: "ซาวน่า", both: "ทั้งสองบริการ" }[w.services] || ""} · ${esc(dt(w.signed_at))}</figcaption></figure>`).join("") : '<span class="muted">ยังไม่มีใครลงชื่อในวันนี้</span>'}</div>` : ""}
-      <p class="q-legend">${Object.values(PT_SHOW).map(([l, k]) => `<span><i class="dot dot--${k}"></i>${l}</span>`).join("")}</p>
+      ${R.qSig === "*" ? `<div class="card q-sigs">${(R.qSigData || []).length ? R.qSigData.map((w) => `<figure><img src="${esc(w.signature)}" alt="ลายเซ็นของ ${esc(w.name)}"><figcaption><b>${esc(w.name)}</b>${w.ref ? " · " + esc(w.ref) : " · ไม่มีรหัสจอง"} · ${{ cold: "อ่างน้ำเย็น", sauna: "ซาวน่า", both: "ทั้งสองบริการ" }[w.services] || ""} · ${esc(dt(w.signed_at))}</figcaption></figure>`).join("") : '<span class="muted">ยังไม่มีใครลงชื่อในวันนี้</span>'}</div>` : ""}
+      <p class="q-legend">${Object.entries(PT_SHOW).filter(([k]) => k !== "expired").map(([, v]) => v).map(([l, k]) => `<span><i class="dot dot--${k}"></i>${l}</span>`).join("")}</p>
       ${day.slots.length ? `<div class="q-slots">${day.slots.map((s) => `<section class="q-slot${s.blocked ? " is-blocked" : ""}"><div class="q-slot-head"><b>${s.hm}–${s.end}</b><span class="meter${s.used >= s.capacity ? " full" : ""}" aria-hidden="true"><i style="width:${s.capacity ? Math.min(100, Math.round((s.used * 100) / s.capacity)) : 0}%"></i></span><span class="muted">${s.used}/${s.capacity} คน</span>${s.blocked ? '<span class="badge badge--muted">ปิดรอบ</span>' : `<button class="btn btn--small" type="button" data-qnewat="${s.hm}">+ จองรอบนี้</button>`}</div>${s.bookings.length ? `<ul>${s.bookings.map((b) => qRow(b)).join("")}</ul>` : ""}</section>`).join("")}
         ${day.off_schedule.length ? `<section class="q-slot"><div class="q-slot-head"><b>นอกตารางรอบ</b></div><ul>${day.off_schedule.map((b) => qRow(b)).join("")}</ul></section>` : ""}</div>`
         : `<div class="card q-closed"><h3>${esc(closedText)}</h3><p class="muted">ไม่รับจองวันนี้</p></div>`}
@@ -1387,8 +1404,8 @@
       const rows = await rpc("staff_export", { p_from: from, p_to: to }, true);
       const STX = { confirmed: "จองแล้ว", checked_in: "มาแล้ว", cancelled: "ยกเลิก", no_show: "ไม่มา", waiting: "รอนัดวันใหม่" };
       const head = ["รหัส", "วันที่", "เวลา", "ชื่อลูกค้า", "เบอร์โทร", "จำนวนคน", "สถานะ", "การชำระ", "แพ็กเกจ", "ยอด (บาท)", "รับเงินด้วย", "จองผ่าน", "หมายเหตุลูกค้า", "หมายเหตุทีมงาน", "จองเมื่อ"];
-      const cell = (v) => { const t = String(v == null ? "" : v); return /[",\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t; };
-      const lines = [head].concat(rows.map((b) => [b.ref, b.day, b.hm, b.name, b.phone ? "'" + b.phone : "", b.people, STX[b.status] || b.status, PT[payType(b)][0], b.package, b.total, METHOD[b.method] || b.method, CH[b.channel] || b.channel, b.note, b.staff_note, dt(b.created_at)]));
+      const cell = csvCell;
+      const lines = [head].concat(rows.map((b) => [b.ref, b.day, b.hm, b.name, b.phone ? "'" + b.phone : "", b.people, STX[b.status] || b.status, (PT_SHOW[payType(b)] || [b.pay])[0], b.package, b.total, METHOD[b.method] || b.method, CH[b.channel] || b.channel, b.note, b.staff_note, dt(b.created_at)]));
       const blob = new Blob(["﻿" + lines.map((r) => r.map(cell).join(",")).join("\r\n")], { type: "text/csv;charset=utf-8" });
       const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "peacefulday-bookings-" + today() + ".csv"; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
       return `ดาวน์โหลด ${rows.length} รายการแล้ว (${dShort(from, "th-TH")} – ${dShort(to, "th-TH")})`;
@@ -1447,7 +1464,7 @@
     const h = decodeURIComponent((location.hash || "").slice(1));
     const [v, a, b] = h.split("/");
     if (v === "booking" && a && b) Object.assign(R, { view: "booking", ref: a, token: b, justBooked: false });
-    else if (v === "waiver") Object.assign(R, { view: "waiver", wref: (a || "").toUpperCase(), wdone: null });
+    else if (v === "waiver") Object.assign(R, { view: "waiver", wref: (a || "").toUpperCase(), wtok: /^[0-9a-f-]{36}$/i.test(b || "") ? b : "", wdone: null });
     else if (["home", "book", "my", "profile", "privacy", "terms"].concat(ADMIN.filter((x) => x !== "abooking")).includes(v)) R.view = v;
     else R.view = "home";
   }
@@ -1458,12 +1475,12 @@
     if (!LIVE.includes(R.view) || !session || document.hidden || R.busy) return;
     const a = document.activeElement;
     if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return;
-    if (R.qn || R.qre || R.qCheckin || R.qOpen || R.checkinFor || R.qSig || R.qQr) return;
+    if (R.qn || R.qre || R.qCheckin || R.qOpen || R.checkinFor || R.qSig || R.qQr || R.qSlip) return;
     const y = window.scrollY; R.flash = ""; render().then(() => window.scrollTo(0, y));
   }
   setInterval(quietRefresh, 30000);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) quietRefresh(); });
-  window.addEventListener("popstate", () => { fromHash(); render(); });
+  window.addEventListener("popstate", () => { R.flash = R.flashErr = ""; fromHash(); render(); });
   fromHash();
   render();
 })();

@@ -48,14 +48,19 @@ ${row("ชำระด้วย", esc(METHOD[b.method] || b.method || "-"))}
 ${b.paid_at ? row("ชำระเมื่อ", esc(thStamp(b.paid_at))) : ""}
 </table>
 <p><a href="${link}" style="display:inline-block;background:#2a3d0c;color:#fff;padding:12px 22px;border-radius:10px;text-decoration:none">ดูหรือเลื่อนการจอง</a></p>
-<p style="font-size:14px">ทุกคนในกลุ่มต้องลงชื่อรับทราบความเสี่ยงก่อนใช้บริการ <a href="${SITE}#waiver/${b.ref}">ลงชื่อล่วงหน้าในมือถือ</a> ถึงร้านจะได้เข้าใช้ทันที</p>
+<p style="font-size:14px">ทุกคนในกลุ่มต้องลงชื่อรับทราบความเสี่ยงก่อนใช้บริการ <a href="${SITE}#waiver/${b.ref}/${b.token}">ลงชื่อล่วงหน้าในมือถือ</a> ถึงร้านจะได้เข้าใช้ทันที</p>
 <p style="font-size:14px">มาก่อนเวลา 10–15 นาที และเตรียมชุดที่เปียกได้ ถ้ามีโรคประจำตัว แจ้งทีมงานเมื่อมาถึง</p>
 <p style="font-size:14px">${esc(c.address_th || "")}${c.map_url ? ` · <a href="${esc(c.map_url)}">เปิดในแผนที่</a>` : ""}<br>สอบถาม โทร ${esc(c.phone || "")}</p>
 <p style="font-size:12px;color:#5d675f">อีเมลนี้เป็นหลักฐานการชำระเงิน ไม่ใช่ใบกำกับภาษี</p>
 </div>`;
 }
 
-const csvCell = (v: unknown) => { const t = v === null || v === undefined ? "" : typeof v === "object" ? JSON.stringify(v) : String(v); return /[",\n\r]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
+// one CSV cell: text a spreadsheet would run as a formula gets a leading apostrophe, then quote if needed
+const csvCell = (v: unknown) => {
+  let t = v === null || v === undefined ? "" : typeof v === "object" ? JSON.stringify(v) : String(v);
+  if (/^[=+\-@\t\r]/.test(t) && !/^-?\d+(\.\d+)?$/.test(t)) t = "'" + t;
+  return /[",\n\r]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+};
 function toCsv(rows: Record<string, unknown>[]) {
   if (!rows.length) return "﻿";
   const cols = Object.keys(rows[0]);
