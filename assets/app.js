@@ -86,7 +86,7 @@
       const q = new URLSearchParams(h.slice(h.indexOf("#") + 1).replace(/^admin&?/, ""));
       session = { access_token: q.get("access_token"), refresh_token: q.get("refresh_token"), expires_at: Date.now() + Number(q.get("expires_in") || 3600) * 1000, email: "" };
       store.set(SESSION_KEY, session);
-      R.recovery = q.get("type") === "recovery";
+      window.__pfdRecovery = q.get("type") === "recovery";
       history.replaceState(null, "", location.pathname + "#admin");
     }
   })();
@@ -111,7 +111,7 @@
   const errText = (e) => { const m = ERR[e && e.code] || ERR[e && e.message]; return m ? P(m[0], m[1]) : P("ระบบขัดข้อง ลองใหม่อีกครั้ง", "Something went wrong. Please try again."); };
 
   // ---------- state ----------
-  const R = { view: "home", flash: "", flashErr: "", busy: false };
+  const R = { view: "home", flash: "", flashErr: "", busy: false, recovery: !!window.__pfdRecovery };
   let C = null; // shop settings from the database
   const BK = { people: 2, day: "", hm: "", name: "", phone: "", email: "", note: "", agree: false, health: false, err: "", fieldErr: {} };
   let ME = null; // signed-in staff member
