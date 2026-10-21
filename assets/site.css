@@ -981,3 +981,30 @@ body[data-mode=adm]{background:#f6f5ee}
 .q-pt input:checked + span { border-color: #264006; background: #f1f6e6; font-weight: 600; box-shadow: inset 0 0 0 1px #264006; }
 .q-pt input:focus-visible + span { outline: 2px solid #264006; outline-offset: 2px; }
 @media (max-width: 560px) { .q-head .btn-row { width: 100%; } .q-head .btn-row .btn { flex: 1 1 auto; } .q-slot-head .btn { margin-left: 0; } }
+
+/* real photos (Oct 2026): two gallery photos, hero framed on the seat and table */
+.pub .hero-media img { object-position: 50% 62%; }
+.pub .trio img { aspect-ratio: 4/5; object-position: 50% 60%; }
+.pub .trio--four .wide img { aspect-ratio: 4/3; object-position: 50% 55%; }
+@media (min-width: 760px) {
+  .pub .trio--four { grid-template-columns: repeat(3, 1fr); }
+  .pub .trio--four .wide { grid-column: 1 / -1; }
+  .pub .trio--four .wide img { aspect-ratio: 21/9; }
+}
+/* cold mist rising off the ice in the hero photo: soft white wisps only, never darkens the photo; still for reduced motion */
+.pub .pebble .mist { position: absolute; z-index: 2; inset: 0; pointer-events: none; overflow: hidden; }
+.pub .pebble .mist i { position: absolute; bottom: 32%; width: 46%; height: 30%; border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(255,255,255,.95), rgba(255,255,255,.45) 50%, rgba(255,255,255,0));
+  filter: blur(10px); opacity: 0; will-change: transform, opacity; animation: pfd-mist 9s ease-out infinite; }
+.pub .pebble .mist i:nth-child(1) { left: 8%; }
+.pub .pebble .mist i:nth-child(2) { left: 36%; width: 40%; animation-delay: 3s; animation-duration: 10s; }
+.pub .pebble .mist i:nth-child(3) { left: 22%; width: 52%; animation-delay: 6s; animation-duration: 11s; }
+@keyframes pfd-mist {
+  0% { transform: translate3d(0, 0, 0) scale(.7, .5); opacity: 0; }
+  20% { opacity: .9; }
+  60% { opacity: .5; }
+  100% { transform: translate3d(8%, -120%, 0) scale(1.4, 1.2); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pub .pebble .mist i { animation: none; opacity: .4; }
+}

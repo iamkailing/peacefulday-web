@@ -265,7 +265,7 @@
       ${next.length ? `<ul class="chips">${next.map((s) => `<li><a class="chip" href="#book" data-book="${s.day}|${s.hm}"><span>${esc(rel(s.day))}</span><b>${s.hm}</b><em>${P("ว่าง " + s.remaining + " ที่", s.remaining + " spots")}</em></a></li>`).join("")}<li><a class="chip chip--more" href="#book" data-go="book">${P("ดูวันอื่น", "More days")}</a></li></ul>` : `<p class="muted">${P("ตอนนี้ยังไม่มีรอบว่างในสัปดาห์นี้ ลองดูวันถัดไปในหน้าจอง", "No open sessions this week. Try later dates on the booking page.")}</p>`}
     </div>
   </div>
-  <div class="hero-media"><div class="pebble"><img src="${IMG("hero.jpg")}" alt="${P("อ่างไม้ใต้ร่มลายเหลืองในสวนของร้าน", "Wooden tubs under yellow-striped umbrellas in the garden")}" fetchpriority="high"></div></div>
+  <div class="hero-media"><div class="pebble"><img src="${IMG("hero.jpg")}" srcset="${IMG("hero-800.jpg")} 800w, ${IMG("hero.jpg")} 1108w" sizes="(min-width: 900px) 46vw, 92vw" width="1108" height="1477" alt="${P("อ่างไม้ใส่น้ำแข็งกับมะนาวในสวนของ Peaceful Day", "A wooden tub filled with ice and two lemons in the Peaceful Day garden")}" fetchpriority="high"><span class="mist" aria-hidden="true"><i></i><i></i><i></i></span></div></div>
 </div></section>
 
 <section class="section" id="included" aria-labelledby="inc-title"><div class="wrap">
@@ -279,10 +279,11 @@
 
 <section class="section section--tint" id="experience" aria-labelledby="exp-title"><div class="wrap">
   <div class="section-head"><p class="eyebrow"><span></span>${P("บรรยากาศจริง", "The place")}</p><h2 id="exp-title">${P("อ่างน้ำเย็น ซาวน่า และสวน", "Cold tubs, sauna and garden")}</h2></div>
-  <div class="trio">
-    <figure><img src="${IMG("icebath.jpg")}" alt="${P("อ่างไม้เต็มไปด้วยน้ำแข็ง", "A wooden tub full of ice")}" loading="lazy"><figcaption>Ice Bath</figcaption></figure>
-    <figure><img src="${IMG("garden.jpg")}" alt="${P("สวนหน้าบ้านพร้อมเก้าอี้อาบแดดและร่มลายเหลือง", "The garden with sun loungers and yellow umbrellas")}" loading="lazy"><figcaption>${P("สวน", "Garden")}</figcaption></figure>
-    <figure><img src="${IMG("evening.jpg")}" alt="${P("ตัวบ้านยามเย็นเมื่อเปิดไฟประดับ", "The house in the evening with string lights")}" loading="lazy"><figcaption>${P("ยามเย็น", "Evening")}</figcaption></figure>
+  <div class="trio trio--four">
+    <figure class="wide"><img src="${IMG("night.jpg")}" srcset="${IMG("night-800.jpg")} 800w, ${IMG("night.jpg")} 1448w" sizes="92vw" width="1448" height="1086" alt="${P("อ่างไม้ใส่น้ำแข็งใต้ร่มลายเหลืองและไฟประดับยามค่ำ", "Ice-filled wooden tubs under yellow-striped umbrellas and string lights at night")}" loading="lazy"><figcaption>${P("ยามค่ำ", "At night")}</figcaption></figure>
+    <figure><img src="${IMG("icebath.jpg")}" srcset="${IMG("icebath-640.jpg")} 640w, ${IMG("icebath.jpg")} 1000w" sizes="(min-width: 760px) 30vw, 92vw" width="1000" height="1500" alt="${P("อ่างไม้สองอ่างในสวนใต้ร่มลายเหลือง", "Two wooden tubs in the garden under a yellow-striped umbrella")}" loading="lazy"><figcaption>Ice Bath</figcaption></figure>
+    <figure><img src="${IMG("garden.jpg")}" srcset="${IMG("garden-640.jpg")} 640w, ${IMG("garden.jpg")} 1000w" sizes="(min-width: 760px) 30vw, 92vw" width="1000" height="1500" alt="${P("สนามหญ้าและทางเดินในสวนใต้ร่มลายเหลือง", "The lawn and stepping stones under a yellow-striped umbrella")}" loading="lazy"><figcaption>${P("สวน", "Garden")}</figcaption></figure>
+    <figure><img src="${IMG("seat.jpg")}" srcset="${IMG("seat-640.jpg")} 640w, ${IMG("seat.jpg")} 1000w" sizes="(min-width: 760px) 30vw, 92vw" width="1000" height="1500" alt="${P("มุมนั่งพักในสวนใต้ร่มลายเหลืองของ Peaceful Day", "A seat in the garden under a yellow-striped umbrella at Peaceful Day")}" loading="lazy"><figcaption>${P("มุมพัก", "Rest corner")}</figcaption></figure>
   </div>
 </div></section>
 
