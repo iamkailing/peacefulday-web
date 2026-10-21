@@ -332,7 +332,7 @@ begin
   v_name := btrim(coalesce(p->>'name', '')); v_phone := _phone(p->>'phone');
   if length(v_name) < 1 or length(v_name) > 120 then raise exception 'name'; end if;
   if v_phone !~ '^0[2-9][0-9]{7,8}$' then raise exception 'phone'; end if;
-  if (select count(*) from bookings where user_id = auth.uid() and created_at > now() - interval '1 hour') >= 5 then
+  if (select count(*) from bookings where user_id = auth.uid() and created_at > now() - interval '1 hour') >= 10 then
     raise exception 'too_many'; end if;
   if v_people is null or v_people < 1 or v_people > (c->>'max_group')::int then raise exception 'people'; end if;
   if v_day is null or v_day > (_now_bkk())::date + (c->>'horizon_days')::int then raise exception 'slot_closed'; end if;
@@ -342,10 +342,11 @@ begin
   perform pg_advisory_xact_lock(hashtext('slot:' || v_day || ' ' || v_hm));
   select * into s from _slots(v_day) x where x.hm = v_hm;
   if not found or s.blocked then raise exception 'slot_closed'; end if;
-  if exists (select 1 from bookings where day = v_day and hm = v_hm and phone = v_phone and status in ('confirmed','checked_in')) then
+  if exists (select 1 from bookings where day = v_day and hm = v_hm and (phone = v_phone or user_id = auth.uid()) and status in ('confirmed','checked_in')) then
     raise exception 'duplicate'; end if;
-  if (select count(*) from bookings where phone = v_phone and status = 'confirmed' and _start(day, hm) > now()) >= 3 then
-    raise exception 'too_many'; end if;
+  -- bookings are paid up front now, so there is no cap on paid bookings; only unpaid holds are limited per member
+  if (select count(*) from bookings where user_id = auth.uid() and status = 'confirmed' and pay = 'await' and hold_until > now()) >= 2 then
+    raise exception 'unpaid_many'; end if;
   if s.capacity - s.used < v_people then raise exception 'slot_full'; end if;
 
   insert into bookings (ref, day, hm, people, name, phone, email, note, total, channel, consent, user_id, pay, hold_until)

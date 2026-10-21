@@ -156,8 +156,9 @@
     slot_full: ["รอบนี้มีที่ว่างไม่พอ กรุณาเลือกรอบอื่น ข้อมูลที่กรอกไว้ยังอยู่", "There aren't enough places left in this session. Please choose another; your details are saved."],
     slot_closed: ["รอบนี้ปิดรับจองแล้ว กรุณาเลือกรอบอื่น", "That session isn't open for booking. Please pick another."],
     too_soon: ["รอบนี้ใกล้เวลาเริ่มเกินไปสำหรับการจองออนไลน์ โทรหาเราได้เลย", "That session starts too soon to book online. Please call us."],
-    duplicate: ["เบอร์นี้จองรอบนี้ไว้แล้ว ถ้าต้องการเพิ่มคนกรุณาโทรหาเรา", "This phone number already has a booking in that session. To add people, please call us."],
-    too_many: ["เบอร์นี้มีการจองล่วงหน้าครบ 3 รายการแล้ว หากต้องการจองเพิ่ม กรุณาโทรหาเรา", "This phone number already has 3 upcoming bookings. Please call us to book more."],
+    duplicate: ["คุณมีการจองรอบนี้อยู่แล้ว ดูได้ที่ “การจองของฉัน” ถ้าต้องการเพิ่มคน กรุณาโทรหาเรา", "You already have a booking in that session (see My bookings). To add people, please call us."],
+    too_many: ["จองถี่เกินไป ลองใหม่อีกครั้งในอีกสักครู่ หรือโทรหาเรา", "Too many bookings in a short time. Please try again later or call us."],
+    unpaid_many: ["คุณมีการจองที่ยังไม่ได้ชำระอยู่ 2 รายการ ชำระหรือยกเลิกรายการเดิมที่หน้า “การจองของฉัน” ก่อน แล้วค่อยจองเพิ่ม", "You have 2 bookings waiting for payment. Pay for or cancel them under My bookings first."],
     change_closed: ["เลยกำหนดเปลี่ยนแปลงออนไลน์แล้ว กรุณาโทรหาเรา", "It's past the online change deadline. Please call us."],
     notfound: ["ไม่พบการจองนี้", "We couldn't find that booking."],
     forbidden: ["ตำแหน่งของคุณทำรายการนี้ไม่ได้", "Your role can't do this."],
@@ -557,7 +558,6 @@
       } catch (e) {
         R.busy = false;
         if (e.code === "name" || e.code === "phone" || e.code === "email") BK.fieldErr[e.code] = errText(e);
-        if (e.code === "duplicate" || e.code === "too_many") BK.fieldErr.phone = errText(e);
         if (e.code === "slot_full" || e.code === "too_soon" || e.code === "slot_closed") BK.hm = "";
         if (e.code === "login" || /JWT/i.test(e.message)) custOut();
         BK.err = errText(e); render();
