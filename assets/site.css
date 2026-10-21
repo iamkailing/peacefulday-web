@@ -1075,3 +1075,4 @@ body[data-mode=adm]{background:#f6f5ee}
 .pub .verify-box { border: 1px dashed var(--line-2); border-radius: 14px; padding: 12px 14px; margin: -4px 0 18px; }
 .pub .verify-box p { margin: 0 0 8px; }
 .pub .verify-box .captcha { margin-bottom: 8px; }
+.q-page .q-stat-btn { font: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; color: inherit; }

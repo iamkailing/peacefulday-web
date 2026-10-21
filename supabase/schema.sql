@@ -99,6 +99,7 @@ alter table bookings add constraint bookings_status_check check (status in ('con
 --      review = slip sent, the team checks it, expired = not paid in time (the booking was released), paid, none
 alter table bookings add column if not exists hold_until timestamptz;
 alter table bookings add column if not exists slip_at timestamptz;
+alter table bookings add column if not exists pay_before text not null default '';  -- payment state just before a cancel, so the team can undo it
 alter table bookings drop constraint if exists bookings_pay_check;
 alter table bookings add constraint bookings_pay_check check (pay in ('due','await','review','expired','paid','none'));
 create index if not exists bookings_slot on bookings (day, hm);
@@ -240,7 +241,7 @@ create or replace function _log(p_ref text, p_action text) returns void language
 create or replace function _expire_holds() returns void language plpgsql volatile set search_path = public as $$
 declare r record;
 begin
-  for r in update bookings set status = 'cancelled', pay = 'expired', cancelled_at = now()
+  for r in update bookings set status = 'cancelled', pay_before = pay, pay = 'expired', cancelled_at = now()
             where pay = 'await' and hold_until < now() and status = 'confirmed' returning ref loop
     insert into audit (who, ref, action) values ('ระบบ', r.ref, 'หมดเวลาชำระ ปล่อยที่นั่งคืน');
   end loop;
@@ -462,7 +463,7 @@ begin
   select * into b from bookings where ref = upper(p_ref) and token = p_token for update;
   if not found then raise exception 'notfound'; end if;
   if not (_booking_json(b)->>'can_cancel')::boolean then raise exception 'change_closed'; end if;
-  update bookings set status = 'cancelled', cancelled_at = now(), pay = case when pay in ('due','await') then 'none' else pay end
+  update bookings set status = 'cancelled', cancelled_at = now(), pay_before = pay, pay = case when pay in ('due','await') then 'none' else pay end
    where id = b.id returning * into b;
   perform _log(b.ref, 'ลูกค้ายกเลิกเอง');
   return _booking_json(b);
@@ -645,7 +646,7 @@ begin
   elsif p_status = 'waiting' and b.status = 'confirmed' then
     update bookings set status = 'waiting' where id = b.id returning * into b;
   elsif p_status = 'cancelled' and b.status in ('confirmed','no_show','waiting') then
-    update bookings set status = 'cancelled', cancelled_at = now(), pay = case when pay in ('due','await') then 'none' else pay end
+    update bookings set status = 'cancelled', cancelled_at = now(), pay_before = pay, pay = case when pay in ('due','await') then 'none' else pay end
      where id = b.id returning * into b;
   elsif p_status = 'confirmed' and b.status in ('checked_in','no_show') then
     update bookings set status = 'confirmed', checked_at = null where id = b.id returning * into b;
@@ -653,6 +654,37 @@ begin
   end if;
   perform _log(b.ref, 'เปลี่ยนสถานะเป็น ' || p_status);
   return _booking_json(b);
+end $$;
+
+-- undo a cancel (a mis-tap, or the customer changed their mind): back to booked if the session still has room
+create or replace function staff_restore(p_ref text, p_over boolean default false) returns jsonb
+language plpgsql volatile security definer set search_path = public as $$
+declare b bookings; s record; r text := _need('staff'); v text;
+begin
+  if p_over and r = 'staff' then raise exception 'forbidden'; end if;
+  select * into b from bookings where ref = upper(p_ref) for update;
+  if not found then raise exception 'notfound'; end if;
+  if b.status <> 'cancelled' then raise exception 'change_closed'; end if;
+  perform pg_advisory_xact_lock(hashtext('slot:' || b.day || ' ' || b.hm));
+  select * into s from _slots(b.day) x where x.hm = b.hm;
+  if found and s.capacity - s.used < b.people and not coalesce(p_over, false) then raise exception 'slot_full'; end if;
+  v := coalesce(nullif(b.pay_before, ''), b.pay);
+  -- an online booking that was waiting for its transfer: the slip (if any) goes back to the team, otherwise collect at the shop
+  if v in ('await','expired') then v := case when exists (select 1 from slips where booking_id = b.id) then 'review' else 'due' end; end if;
+  if v = 'none' and b.total > 0 and b.pay_before = '' then v := 'due'; end if;
+  update bookings set status = 'confirmed', cancelled_at = null, pay = v, pay_before = '', hold_until = null where id = b.id returning * into b;
+  perform _log(b.ref, 'กู้คืนคิวที่ยกเลิก' || case when p_over then ' เกินความจุ' else '' end);
+  return _staff_json(b);
+end $$;
+
+-- cancelled bookings from the last 30 days and ahead, newest cancel first
+create or replace function staff_cancelled() returns jsonb
+language plpgsql volatile security definer set search_path = public as $$
+begin
+  perform _need('staff');
+  perform _expire_holds();
+  return coalesce((select jsonb_agg(_staff_json(b) order by b.cancelled_at desc nulls last) from
+    (select * from bookings where status = 'cancelled' and day >= (_now_bkk())::date - 30 order by cancelled_at desc nulls last limit 150) b), '[]'::jsonb);
 end $$;
 
 create or replace function staff_move(p_ref text, p_day date, p_hm text, p_over boolean) returns jsonb
@@ -875,6 +907,6 @@ grant execute on function create_booking(jsonb), my_bookings(), my_profile(), sa
 grant execute on function staff_me(text), staff_day(date), staff_search(text), staff_booking(text), staff_create_booking(jsonb),
   staff_checkin(text, text), staff_take_payment(text, text), staff_set_status(text, text), staff_move(text, date, text, boolean),
   staff_note(text, text), staff_set_slot(date, text, boolean, int), staff_set_closed_day(date, boolean, text), staff_set_holiday(date, boolean, text), staff_closed_days(),
-  staff_save_settings(jsonb), staff_overview(date), staff_days(date, int), staff_waiting(), staff_slip(text), staff_slips(), staff_export(date, date), staff_team(), staff_invite(text, text, text), staff_remove(text) to authenticated;
+  staff_save_settings(jsonb), staff_overview(date), staff_days(date, int), staff_waiting(), staff_restore(text, boolean), staff_cancelled(), staff_slip(text), staff_slips(), staff_export(date, date), staff_team(), staff_invite(text, text, text), staff_remove(text) to authenticated;
 grant execute on function slip_check_get(text, uuid), slip_check_set(bigint, text, text, numeric, text) to service_role;
 -- helpers run inside the functions above (which run as the owner), so nobody needs to call them directly
