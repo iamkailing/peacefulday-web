@@ -66,13 +66,13 @@
     store.set(SESSION_KEY, session);
   }
   async function signUp(email, password) {
-    const r = await fetch(CFG.url + "/auth/v1/signup", { method: "POST", headers: { apikey: CFG.key, "Content-Type": "application/json" }, body: JSON.stringify({ email, password, options: { email_redirect_to: location.origin + location.pathname + "#admin" } }) });
+    const r = await fetch(CFG.url + "/auth/v1/signup?redirect_to=" + encodeURIComponent(location.origin + location.pathname), { method: "POST", headers: { apikey: CFG.key, "Content-Type": "application/json" }, body: JSON.stringify({ email, password }) });
     const j = await r.json();
     if (!r.ok) throw new Error(j.error_description || j.msg || j.message || "signup");
     return j;
   }
   async function resetPassword(email) {
-    await fetch(CFG.url + "/auth/v1/recover", { method: "POST", headers: { apikey: CFG.key, "Content-Type": "application/json" }, body: JSON.stringify({ email, redirect_to: location.origin + location.pathname + "#admin" }) });
+    await fetch(CFG.url + "/auth/v1/recover?redirect_to=" + encodeURIComponent(location.origin + location.pathname), { method: "POST", headers: { apikey: CFG.key, "Content-Type": "application/json" }, body: JSON.stringify({ email }) });
   }
   async function setPassword(password) {
     const r = await fetch(CFG.url + "/auth/v1/user", { method: "PUT", headers: { apikey: CFG.key, "Content-Type": "application/json", Authorization: "Bearer " + (await token()) }, body: JSON.stringify({ password }) });
