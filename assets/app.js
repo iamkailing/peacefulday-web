@@ -787,6 +787,10 @@
       ["สิทธิของคุณ", "Your rights", [
         ["ดูและแก้ไขชื่อ เบอร์ วันเกิด เพศ และการรับข่าวสารได้เองที่หน้าข้อมูลสมาชิก", "View and edit your name, number, date of birth, gender and marketing choice on your profile page."],
         ["ขอสำเนาข้อมูล ขอลบบัญชี หรือถอนความยินยอม ได้โดยโทรหรือแจ้งทีมงานที่ร้าน", "Ask for a copy of your data, deletion of your account, or to withdraw consent by calling us or asking at the shop."]]],
+      ["เราเก็บข้อมูลนานแค่ไหน", "How long we keep it", [
+        ["เก็บข้อมูลสมาชิกและประวัติการจองตลอดระยะเวลาที่คุณเป็นสมาชิก เพื่อให้บริการและดูประวัติการใช้บริการ", "We keep your member details and booking history for as long as you are a member, to serve you and keep a record of your visits."],
+        ["ข้อมูลการชำระเงินและสลิปเก็บตามระยะเวลาที่กฎหมายบัญชีและภาษีกำหนด", "Payment records and slips are kept for as long as accounting and tax law requires."],
+        ["เราสำรองข้อมูลเป็นประจำเพื่อป้องกันข้อมูลสูญหาย ไฟล์สำรองเข้าถึงได้เฉพาะเจ้าของร้าน", "We back up the data regularly so nothing is lost. Only the shop owner can open the backups."]]],
       ["ความปลอดภัย", "Security", [
         ["ข้อมูลถูกส่งผ่านการเชื่อมต่อแบบเข้ารหัส (HTTPS) และฐานข้อมูลเปิดให้เข้าถึงผ่านระบบของร้านเท่านั้น", "Data travels over encrypted connections (HTTPS), and the database is only reachable through the shop's system."],
         ["ไม่มีระบบออนไลน์ใดปลอดภัยได้ 100% กรุณาตั้งรหัสผ่านที่เดายากและไม่ใช้ซ้ำกับที่อื่น", "No online system is perfectly secure. Please use a strong password you don't use elsewhere."]]],
@@ -847,10 +851,10 @@
   const METHOD_ALL = Object.assign({ package: "คูปองแพ็กเกจ" }, METHOD);
   const CH = { web: "เว็บ", walk_in: "Walk-in", phone: "โทร", line: "LINE" };
   const badge = (m, k) => `<span class="badge ${(m[k] || ["", ""])[1]}">${(m[k] || [k])[0]}</span>`;
-  const ADMIN = ["admin", "queue", "aday", "abooking", "anew", "asearch", "asettings", "ateam", "apassword"];
+  const ADMIN = ["acustomers", "admin", "queue", "aday", "abooking", "anew", "asearch", "asettings", "ateam", "apassword"];
 
   function admLayout(main) {
-    const nav = [["admin", "ภาพรวมวันนี้"], ["queue", "หน้าจองคิว (แอดมิน)"], ["aday", "ตารางรอบ"], ["anew", "+ สร้างการจอง"], ["asearch", "ค้นหาการจอง"], ["asettings", "ตั้งค่าร้าน"], ["ateam", "ทีมงาน"]];
+    const nav = [["admin", "ภาพรวมวันนี้"], ["queue", "หน้าจองคิว (แอดมิน)"], ["aday", "ตารางรอบ"], ["anew", "+ สร้างการจอง"], ["asearch", "ค้นหาการจอง"], ["acustomers", "ลูกค้า"], ["asettings", "ตั้งค่าร้าน"], ["ateam", "ทีมงาน"]];
     const cur = R.view === "abooking" ? "aday" : R.view;
     return `<div class="adm"><div class="shell">
   <aside class="side${R.sideOpen ? " is-open" : ""}">
@@ -1106,6 +1110,33 @@
     });
   }
 
+  // members: who they are, how often they come, and the list as a CSV file (owner and managers)
+  async function viewCustomers() {
+    if (ME.role === "staff") return admLayout('<div class="card"><p class="muted">เจ้าของร้านหรือผู้จัดการเท่านั้นที่ดูรายชื่อลูกค้าได้</p></div>');
+    const list = await rpc("staff_customers", { p_q: R.cq || "" }, true);
+    const G = { male: "ชาย", female: "หญิง", unspecified: "ไม่ระบุ" };
+    return admLayout(`<div class="topline"><h1>ลูกค้า <span class="muted" style="font-weight:400;font-size:1rem">${list.length} คน</span></h1><button class="btn" type="button" data-ccsv>ส่งออก CSV</button></div>
+  <form class="filters" id="cq"><div class="field" style="flex:1 1 260px"><label for="cqq">ชื่อ เบอร์ หรืออีเมล</label><input type="search" id="cqq" value="${esc(R.cq || "")}"></div><button class="btn" type="submit">ค้นหา</button></form>
+  ${list.length ? `<section class="card"><div class="table-wrap"><table><thead><tr><th>ชื่อ</th><th>เบอร์</th><th>อีเมล</th><th>จอง</th><th>มาแล้ว</th><th>ยอดรวม</th><th>มาล่าสุด / นัดถัดไป</th><th>รับข่าวสาร</th><th>สมัครเมื่อ</th></tr></thead><tbody>
+    ${list.map((c) => `<tr><td>${esc((c.first_name + " " + c.last_name).trim())}</td><td>${esc(fmtPhone(c.phone))}</td><td>${esc(c.email)}${c.email_verified ? ' <span class="badge badge--ok">ยืนยัน</span>' : ""}</td><td>${c.bookings}</td><td>${c.visits}</td><td>${baht(c.spent)}</td><td>${c.last_day ? esc(dShort(c.last_day, "th-TH")) : "–"}</td><td>${c.marketing_consent ? "ยินยอม" : "–"}</td><td>${esc(dShort(String(c.created_at).slice(0, 10), "th-TH"))}</td></tr>`).join("")}
+  </tbody></table></div></section>` : '<p class="empty">ยังไม่มีสมาชิก</p>'}
+  <p class="muted small">ข้อมูลทั้งหมดเก็บในฐานข้อมูลของร้าน และส่งไฟล์สำรองเข้าอีเมลเจ้าของร้านทุกวันจันทร์ 8 โมงเช้า</p>`);
+  }
+  function bindCustomers() {
+    const f = $("#cq"); if (f) f.addEventListener("submit", (e) => { e.preventDefault(); R.cq = $("#cqq").value; render(); });
+    const b = $("[data-ccsv]");
+    if (b) b.addEventListener("click", () => act(async () => {
+      const list = await rpc("staff_customers", { p_q: "" }, true);
+      const head = ["ชื่อ", "นามสกุล", "เบอร์โทร", "อีเมล", "อีเมลยืนยันแล้ว", "วันเกิด", "เพศ", "ยินยอมรับข่าวสาร", "จอง (ครั้ง)", "มาแล้ว (ครั้ง)", "ยอดรวม (บาท)", "มาล่าสุด/นัดถัดไป", "สมัครเมื่อ"];
+      const G = { male: "ชาย", female: "หญิง", unspecified: "ไม่ระบุ" };
+      const cell = (v) => { const t = String(v == null ? "" : v); return /[",\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t; };
+      const rows = list.map((c) => [c.first_name, c.last_name, c.phone ? "'" + c.phone : "", c.email, c.email_verified ? "ใช่" : "", c.birth_date || "", G[c.gender] || "", c.marketing_consent ? "ยินยอม" : "", c.bookings, c.visits, c.spent, c.last_day || "", dt(c.created_at)]);
+      const blob = new Blob(["\ufeff" + [head].concat(rows).map((r) => r.map(cell).join(",")).join("\r\n")], { type: "text/csv;charset=utf-8" });
+      const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "peacefulday-members-" + today() + ".csv"; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+      return `ดาวน์โหลดรายชื่อลูกค้า ${list.length} คนแล้ว`;
+    }));
+  }
+
   async function viewTeam() {
     const t = await rpc("staff_team", {}, true);
     return admLayout(`<div class="topline"><h1>ทีมงาน</h1></div>
@@ -1288,7 +1319,7 @@
           else if (!ME) { signOut(); R.flashErr = errText({ code: "not_staff" }) + " — ให้เจ้าของร้านเพิ่มอีเมลนี้ในหน้า “ทีมงาน” ก่อน"; html = viewLogin(); }
           else if (R.recovery && R.view !== "apassword") { R.view = "apassword"; html = viewPassword(); }
           else if (ME.role === "staff" && !["queue", "apassword"].includes(R.view)) { R.view = "queue"; history.replaceState(null, "", "#queue"); html = await viewQueue(); }
-          else html = await ({ queue: viewQueue, admin: viewDashboard, aday: viewDay, abooking: viewAdminBooking, anew: viewNew, asearch: viewSearch, asettings: viewSettings, ateam: viewTeam, apassword: viewPassword }[R.view])();
+          else html = await ({ queue: viewQueue, admin: viewDashboard, aday: viewDay, abooking: viewAdminBooking, anew: viewNew, asearch: viewSearch, asettings: viewSettings, ateam: viewTeam, acustomers: viewCustomers, apassword: viewPassword }[R.view])();
         }
       } else html = await ({ home: viewHome, book: viewBook, booking: viewBooking, my: viewMy, profile: viewProfile, privacy: viewPrivacy, terms: viewTerms }[R.view] || viewHome)();
     } catch (e) {
@@ -1298,7 +1329,7 @@
     if (seq !== renderSeq) return; // a newer screen was requested meanwhile
     app.innerHTML = html;
     bindCommon();
-    const binders = { profile: bindProfile, queue: bindQueue, book: bindBook, booking: bindBooking, my: bindMy, aday: bindDay, abooking: bindAdminBooking, anew: bindNew, asearch: bindSearch, asettings: bindSettings, ateam: bindTeam, apassword: bindPassword };
+    const binders = { profile: bindProfile, queue: bindQueue, book: bindBook, booking: bindBooking, my: bindMy, aday: bindDay, abooking: bindAdminBooking, anew: bindNew, asearch: bindSearch, asettings: bindSettings, ateam: bindTeam, acustomers: bindCustomers, apassword: bindPassword };
     if (isAdm && !$(".adm .shell") && !$(".q-page")) bindLogin(); else if (binders[R.view]) binders[R.view]();
     if (R.anchor) { const a = document.getElementById(R.anchor); R.anchor = ""; if (a) a.scrollIntoView(); }
   }

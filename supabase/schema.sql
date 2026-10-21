@@ -99,6 +99,7 @@ alter table bookings add constraint bookings_status_check check (status in ('con
 --      review = slip sent, the team checks it, expired = not paid in time (the booking was released), paid, none
 alter table bookings add column if not exists hold_until timestamptz;
 alter table bookings add column if not exists slip_at timestamptz;
+alter table bookings add column if not exists receipt_sent_at timestamptz;  -- payment confirmation email sent
 alter table bookings add column if not exists pay_before text not null default '';  -- payment state just before a cancel, so the team can undo it
 alter table bookings drop constraint if exists bookings_pay_check;
 alter table bookings add constraint bookings_pay_check check (pay in ('due','await','review','expired','paid','none'));
@@ -143,6 +144,15 @@ alter table slips add column if not exists result text not null default '';
 create unique index if not exists slips_ref on slips (slip_ref) where slip_ref is not null;
 alter table slips enable row level security;
 revoke all on slips from anon, authenticated;
+
+-- values only the server uses (never sent to the website)
+create table if not exists app_private (
+  id int primary key default 1 check (id = 1),
+  backup_token text not null default encode(gen_random_bytes(24), 'hex')
+);
+insert into app_private (id) values (1) on conflict (id) do nothing;
+alter table app_private enable row level security;
+revoke all on app_private from anon, authenticated;
 
 create table if not exists staff (
   user_id uuid primary key,
@@ -866,6 +876,70 @@ begin
   return jsonb_build_object('status', 'manual', 'reason', p_note);
 end $$;
 
+-- ---------- emails (sent by the pfd-mail edge function, which holds the Resend key) ----------
+-- a paid web booking whose confirmation email has not gone out yet
+create or replace function mail_receipt_get(p_ref text) returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare b bookings;
+begin
+  select * into b from bookings where ref = upper(p_ref) and pay = 'paid' and receipt_sent_at is null and email <> '' and status in ('confirmed','checked_in');
+  if not found then return null; end if;
+  return _booking_json(b) || jsonb_build_object('token', b.token, 'paid_at', b.paid_at, 'cfg', _cfg());
+end $$;
+
+create or replace function mail_receipt_done(p_ref text) returns void
+language sql volatile security definer set search_path = public as $$
+  update bookings set receipt_sent_at = now() where ref = upper(p_ref);
+  insert into audit (who, ref, action) values ('ระบบ', upper(p_ref), 'ส่งอีเมลยืนยันการชำระเงินแล้ว') $$;
+
+-- everything worth keeping, for the weekly backup email to the owner
+create or replace function backup_data(p_token text) returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if p_token is null or p_token <> (select backup_token from app_private where id = 1) then return null; end if;
+  return jsonb_build_object(
+    'owners', coalesce((select jsonb_agg(email) from staff where role = 'owner'), '[]'::jsonb),
+    'customers', coalesce((select jsonb_agg(to_jsonb(c) order by c.created_at) from customers c), '[]'::jsonb),
+    'bookings', coalesce((select jsonb_agg(to_jsonb(b) - 'token' order by b.day, b.hm, b.created_at) from bookings b), '[]'::jsonb),
+    'slips', coalesce((select jsonb_agg(jsonb_build_object('ref', b.ref, 'slip_ref', s.slip_ref, 'amount', s.amount, 'result', s.result, 'created_at', s.created_at) order by s.id)
+                       from slips s join bookings b on b.id = s.booking_id), '[]'::jsonb));
+end $$;
+
+-- when a web booking becomes paid (slip checked, or paid at the shop), ask pfd-mail to send the confirmation
+create or replace function _on_paid() returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if new.pay = 'paid' and old.pay is distinct from 'paid' and new.email <> '' and new.receipt_sent_at is null then
+    begin
+      perform net.http_post(url := 'https://tisybvfjejtdjtykowcb.supabase.co/functions/v1/pfd-mail',
+                            body := jsonb_build_object('ref', new.ref), headers := '{"Content-Type":"application/json"}'::jsonb);
+    exception when others then null;  -- an email problem never blocks the payment
+    end;
+  end if;
+  return new;
+end $$;
+drop trigger if exists bookings_paid on bookings;
+create trigger bookings_paid after update of pay on bookings for each row execute function _on_paid();
+
+-- members, with how often they come, for the "ลูกค้า" page (owner and managers)
+create or replace function staff_customers(p_q text) returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare q text := lower(btrim(coalesce(p_q, ''))); digits text := _phone(p_q);
+begin
+  perform _need('manager');
+  return coalesce((select jsonb_agg(x order by x->>'created_at' desc) from (
+    select jsonb_build_object('email', c.email, 'phone', c.phone, 'first_name', c.first_name, 'last_name', c.last_name,
+      'birth_date', c.birth_date, 'gender', c.gender, 'marketing_consent', c.marketing_consent, 'email_verified', c.email_verified_at is not null,
+      'created_at', c.created_at,
+      'bookings', (select count(*) from bookings b where b.user_id = c.user_id and b.status in ('confirmed','checked_in','no_show')),
+      'visits', (select count(*) from bookings b where b.user_id = c.user_id and b.status = 'checked_in'),
+      'spent', coalesce((select sum(total) from bookings b where b.user_id = c.user_id and b.pay = 'paid'), 0),
+      'last_day', (select max(day) from bookings b where b.user_id = c.user_id and b.status in ('confirmed','checked_in'))) x
+    from customers c
+    where q = '' or lower(c.first_name || ' ' || c.last_name) like '%' || q || '%' or lower(c.email) like '%' || q || '%'
+       or (length(digits) >= 4 and c.phone like '%' || digits || '%')
+    order by c.created_at desc limit 2000) t), '[]'::jsonb);
+end $$;
+
 -- ---------- who may call what ----------
 revoke execute on all functions in schema public from public, anon, authenticated;
 -- people booked per day, for the strip of days at the top of the queue page
@@ -909,5 +983,18 @@ grant execute on function staff_me(text), staff_day(date), staff_search(text), s
   staff_checkin(text, text), staff_take_payment(text, text), staff_set_status(text, text), staff_move(text, date, text, boolean),
   staff_note(text, text), staff_set_slot(date, text, boolean, int), staff_set_closed_day(date, boolean, text), staff_set_holiday(date, boolean, text), staff_closed_days(),
   staff_save_settings(jsonb), staff_overview(date), staff_days(date, int), staff_waiting(), staff_restore(text, boolean), staff_cancelled(), staff_slip(text), staff_slips(), staff_export(date, date), staff_team(), staff_invite(text, text, text), staff_remove(text) to authenticated;
-grant execute on function slip_check_get(text, uuid), slip_check_set(bigint, text, text, numeric, text) to service_role;
+grant execute on function slip_check_get(text, uuid), slip_check_set(bigint, text, text, numeric, text),
+  mail_receipt_get(text), mail_receipt_done(text), backup_data(text) to service_role;
+grant execute on function staff_customers(text) to authenticated;
 -- helpers run inside the functions above (which run as the owner), so nobody needs to call them directly
+
+-- ---------- background jobs (Supabase extensions; skipped quietly where they are not available) ----------
+do $$ begin create extension if not exists pg_net; exception when others then raise notice 'pg_net not available'; end $$;
+do $$ begin
+  create extension if not exists pg_cron;
+  -- every Monday 08:00 Bangkok (01:00 UTC): email the owner a backup of members and bookings
+  perform cron.schedule('pfd-weekly-backup', '0 1 * * 1',
+    $job$ select net.http_post(url := 'https://tisybvfjejtdjtykowcb.supabase.co/functions/v1/pfd-mail',
+            body := jsonb_build_object('backup', (select backup_token from public.app_private where id = 1)),
+            headers := '{"Content-Type":"application/json"}'::jsonb) $job$);
+exception when others then raise notice 'pg_cron not available'; end $$;

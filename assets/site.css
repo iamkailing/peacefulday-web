@@ -1056,7 +1056,7 @@ body[data-mode=adm]{background:#f6f5ee}
 .pub .qr-wrap .qr { display: block; width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--line); }
 .pub .qr-wrap figcaption { font-size: .85rem; color: var(--muted, #5d675f); margin-top: 8px; }
 .pub .pay-info p { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 0 0 10px; }
-.pub .pay-info small { flex: 0 0 100%; color: var(--muted, #5d675f); font-size: .82rem; }
+.pub .pay-info small { flex: 0 0 100%; color: var(--muted, #5d675f); font-size: .95rem; }
 .pub .pay-amt b { font-size: 1.9rem; line-height: 1.1; }
 .pub .slip-field { margin-top: 16px; }
 .pub .slip-field input[type=file] { min-height: 0; padding: 10px; }
