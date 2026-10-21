@@ -1002,3 +1002,25 @@ body[data-mode=adm]{background:#f6f5ee}
   .pub .hero-media .pebble { aspect-ratio: 3 / 4; height: auto; min-height: 0; max-height: none; border-radius: 999px 999px 6px 6px; }
   .pub .hero-media img { object-position: 50% 58%; }
 }
+
+/* ---- design pass (Oct 2026) ---- */
+.pub .why li, .pub .steps li { align-content: start; align-items: start; }
+.pub .section-head { margin-bottom: 28px; }
+.pub .section-head .lede { margin: 10px 0 0; color: var(--ink-2); max-width: 60ch; }
+.pub .prices { display: grid; gap: 14px; grid-template-columns: 1fr; max-width: 760px; }
+@media (min-width: 640px) { .pub .prices { grid-template-columns: 1fr 1fr; } }
+.pub .price-tile { background: #fff; border: 1px solid #dfe3d3; border-radius: 6px; padding: 24px 26px; }
+.pub .price-tile h3 { margin: 0 0 6px; font-size: 1rem; font-weight: 600; color: var(--ink-2); }
+.pub .price-tile .price-amount { margin: 0; font: 400 clamp(2.4rem, 5vw, 3.2rem)/1.1 var(--f-display); color: #20251b; }
+.pub .price-tile .price-sub { margin: 6px 0 0; color: var(--ink-2); font-size: .92rem; }
+.pub .price-tile--deal { background: #fbdb00; border-color: #fbdb00; }
+.pub .price-tile--deal h3, .pub .price-tile--deal .price-sub { color: #264006; }
+.pub .price-tile--deal .price-amount { color: #264006; }
+.pub .price-cta { margin: 22px 0 0; }
+/* phones: the photo comes first, then the words */
+@media (max-width: 899px) {
+  .pub .hero .wrap { display: flex; flex-direction: column; }
+  .pub .hero-media { order: -1; margin: 0 0 22px; padding-top: 0; min-height: 0; }
+  .pub .hero-media .pebble { aspect-ratio: 3 / 4; max-height: 52vh; width: auto; max-width: 100%; margin: 0 auto; }
+  .pub .hero-media img { object-position: 50% 55%; }
+}

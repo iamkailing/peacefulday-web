@@ -244,7 +244,7 @@
 <main id="main">${main}</main>
 <footer class="site-footer"><div class="wrap">
   <div class="foot-grid">
-    <p class="foot-brand">${P("แช่เย็น อบร้อน แล้วพักในสวน", "Cold plunge, warm sauna, a quiet garden.")}</p>
+    <p class="foot-brand">${P('แช่เย็น อบร้อน <span class="nw">แล้วพักในสวน</span>', "Cold plunge, warm sauna, a quiet garden.")}</p>
     <div class="foot-col"><h2>${P("ที่ตั้งและเวลาเปิด", "Visit us")}</h2><p>${esc(P(C.address_th, C.address_en))}</p><p>${esc(hoursLine())}</p><p><a href="${esc(C.map_url)}" target="_blank" rel="noopener">${P("เปิดในแผนที่", "Open in Maps")}</a></p></div>
     <div class="foot-col"><h2>${P("ติดต่อ", "Contact")}</h2><p>${P("โทร", "Call")} <a href="tel:${esc((C.phone || "").replace(/\D/g, ""))}">${esc(C.phone)}</a></p>${C.line ? `<p>LINE ${esc(C.line)}</p>` : ""}</div>
     <div class="foot-col"><h2>${P("การจอง", "Bookings")}</h2><ul><li><a href="#book" data-go="book">${P("จองรอบ", "Book a session")}</a></li><li><a href="#my" data-go="my">${P("ดูหรือแก้ไขการจอง", "View or change a booking")}</a></li><li><a href="#admin" data-go="admin">${P("สำหรับทีมงาน", "Staff")}</a></li></ul></div>
@@ -255,11 +255,6 @@
 
   // ---------- home: the eight parts from the review ----------
   async function viewHome() {
-    let week = [];
-    try { week = await rpc("availability", { p_from: today(), p_days: 7, p_people: 1 }); } catch (e) { week = []; }
-    const next = [];
-    week.forEach((d) => d.slots.forEach((s) => { if (s.ok && next.length < 6) next.push({ day: d.day, hm: s.hm, remaining: s.remaining }); }));
-    const rel = (k) => (k === today() ? P("วันนี้", "Today") : k === addDays(today(), 1) ? P("พรุ่งนี้", "Tomorrow") : dShort(k));
     const faq = faqItems();
     return pubLayout(`
 <section class="hero" aria-labelledby="hero-title"><div class="wrap">
@@ -270,15 +265,12 @@
     <p class="hero-price"><strong>${baht(C.price)}</strong>${P(`ต่อคน ใช้บริการได้ ${C.duration / 60} ชั่วโมง`, `per person, ${C.duration / 60} hours`)}</p>${pairOn() ? `<p class="hero-promo">${promoText()}</p>` : ""}
     <div class="hero-cta"><a class="btn btn--primary" href="#book" data-go="book">${P("ดูรอบว่างและจอง", "See times and book")}</a><a class="btn" href="#first" data-go="home#first">${P("เตรียมตัวก่อนมา", "First time here?")}</a></div>
     <p class="hero-hours">${ICON.clock}<span>${esc(hoursLine())}</span></p>
-    <div class="next"><h2>${P("รอบว่างถัดไป", "Next available sessions")}</h2>
-      ${next.length ? `<ul class="chips">${next.map((s) => `<li><a class="chip" href="#book" data-book="${s.day}|${s.hm}"><span>${esc(rel(s.day))}</span><b>${s.hm}</b><em>${s.remaining <= 3 ? P("เหลือ " + s.remaining + " ที่", s.remaining + " left") : P("ถึง " + endHM(s.hm), "until " + endHM(s.hm))}</em></a></li>`).join("")}<li><a class="chip chip--more" href="#book" data-go="book">${P("ดูวันอื่น", "More days")}</a></li></ul>` : `<p class="muted">${P("ตอนนี้ยังไม่มีรอบว่างในสัปดาห์นี้ ลองดูวันถัดไปในหน้าจอง", "No sessions are available this week. Check later dates on the booking page.")}</p>`}
-    </div>
   </div>
   <div class="hero-media"><div class="pebble"><img src="${IMG("hero-sky.jpg")}" srcset="${IMG("hero-sky-800.jpg")} 800w, ${IMG("hero-sky.jpg")} 941w" sizes="(min-width: 900px) 46vw, 92vw" width="941" height="1672" alt="${P("อ่างไม้ใส่น้ำแข็งกับเป็ดยางสีเหลือง ใต้ร่มลายเหลืองในสวนของ Peaceful Day", "Ice-filled wooden tubs with yellow rubber ducks under a yellow-striped umbrella in the Peaceful Day garden")}" fetchpriority="high"></div></div>
 </div></section>
 
 <section class="section" id="included" aria-labelledby="inc-title"><div class="wrap">
-  <div class="section-head"><p class="eyebrow"><span></span>${P("ในหนึ่งรอบ", "In one session")}</p><h2 id="inc-title">${P(`${C.duration / 60} ชั่วโมง ใช้ได้ทั้งสามมุม`, `${C.duration / 60} hours, all three spaces`)}</h2></div>
+  <div class="section-head"><h2 id="inc-title">${P(`${C.duration / 60} ชั่วโมง ใช้ได้ทั้งสามมุม`, `${C.duration / 60} hours, all three spaces`)}</h2></div>
   <ul class="why">
     <li><span class="ico">${ICON.snow}</span><div><h3>Ice Bath</h3><p>${P("แช่น้ำเย็นในสวน เริ่มทีละนิดตามที่ไหว มีทีมงานอธิบายวิธีก่อนเริ่ม", "Ice baths in the garden, with guidance from the team before you start. Take short dips at your own pace.")}</p></div></li>
     <li><span class="ico">${ICON.flame}</span><div><h3>Sauna</h3><p>${P("อบซาวน่าสลับกับแช่น้ำเย็นได้ภายในเวลาของรอบ", "Enjoy the sauna between cold dips during your session.")}</p></div></li>
@@ -287,14 +279,14 @@
 </div></section>
 
 <section class="section section--tint" id="experience" aria-labelledby="exp-title"><div class="wrap">
-  <div class="section-head"><p class="eyebrow"><span></span>${P("บรรยากาศที่ร้าน", "Around Peaceful Day")}</p><h2 id="exp-title">${P('อ่างน้ำเย็น <span class="nw">ซาวน่า</span> และสวน', "Cold tubs, sauna and garden")}</h2></div>
+  <div class="section-head"><h2 id="exp-title">${P('อ่างน้ำเย็น <span class="nw">ซาวน่า</span> และสวน', "Cold tubs, sauna and garden")}</h2></div>
   <div class="trio trio--gallery">${GALLERY.map(([f, w, th, en, ath, aen], i) => `<figure${i === 0 ? ' class="wide"' : ""}><img src="${IMG(f + ".jpg")}" srcset="${IMG(f + "-" + w + ".jpg")} ${w}w, ${IMG(f + ".jpg")} ${i === 0 ? 1448 : 1000}w" sizes="${i === 0 ? "92vw" : "(min-width: 980px) 23vw, (min-width: 560px) 46vw, 92vw"}" alt="${P(ath, aen)}" loading="lazy"><figcaption>${P(th, en)}</figcaption></figure>`).join("")}</div>
 </div></section>
 
 <section class="section" id="first" aria-labelledby="first-title"><div class="wrap">
-  <div class="section-head"><p class="eyebrow"><span></span>${P("มาครั้งแรก", "First visit")}</p><h2 id="first-title">${P("เตรียมตัวสำหรับครั้งแรก", "Your first visit")}</h2></div>
+  <div class="section-head"><h2 id="first-title">${P("เตรียมตัวสำหรับครั้งแรก", "Your first visit")}</h2></div>
   <ol class="steps">
-    <li><div><h3>${P("จองรอบออนไลน์", "Book online")}</h3><p>${P("เลือกจำนวนคน วัน และเวลา แล้วชำระเงินที่ร้านตอนมาถึง", "Choose your group size, date and time, then pay at the shop when you arrive.")}</p></div></li>
+    <li><div><h3>${P("จองรอบออนไลน์", "Book online")}</h3><p>${P("เลือกวัน เวลา และจำนวนคน แล้วชำระเงินที่ร้านตอนมาถึง", "Choose a day and time, then how many people. You pay at the shop when you arrive.")}</p></div></li>
     <li><div><h3>${P("มาก่อนเวลา 10–15 นาที", "Arrive 10–15 minutes early")}</h3><p>${P("เตรียมชุดว่ายน้ำหรือชุดที่เปียกได้ ทีมงานจะอธิบายวิธีแช่ให้", "Bring swimwear or clothes that can get wet. Our team will explain how to get started.")}</p></div></li>
     <li><div><h3>${P("แช่น้ำเย็นและอบซาวน่า", "Ice bath and sauna")}</h3><p>${P("เริ่มแช่ช่วงสั้น ๆ ไม่ต้องฝืน และพักได้เมื่อรู้สึกว่าพอแล้ว", "Keep your first dips short, go at your own pace and take breaks when you need them.")}</p></div></li>
     <li><div><h3>${P("พักในสวนก่อนกลับ", "Rest in the garden")}</h3><p>${P("ใช้เวลานั่งพักในสวนสักหน่อยก่อนกลับ", "Take a little time to relax in the garden before heading home.")}</p></div></li>
@@ -302,23 +294,21 @@
 </div></section>
 
 <section class="section section--sage" id="price" aria-labelledby="price-title"><div class="wrap">
-  <div class="section-head"><p class="eyebrow"><span></span>${P("ราคา", "Price")}</p><h2 id="price-title">${P("ราคาต่อรอบ", "Session prices")}</h2></div>
-  <div class="price-grid"><article class="price price--feature">
-    <h3>${P("Ice Bath + Sauna 1 รอบ", "Ice Bath + Sauna, one session")}</h3>
-    <p class="price-amount">${baht(C.price)}<small>${P(" / คน", " / person")}</small></p>
-    ${pairOn() ? `<p class="price-promo"><b>${P("โปร 2 คน", "2-person deal")} ${baht(C.pair_price)}</b> ${P(`ปกติ ${baht(C.price * 2)} ใช้ราคาโปรได้ทุกคู่ในกลุ่ม`, `instead of ${baht(C.price * 2)}, for every pair in your group`)}</p>` : ""}
-    <p class="price-note">${P(`ใช้บริการได้ ${C.duration / 60} ชั่วโมง เริ่มรอบใหม่ทุกชั่วโมง ชำระที่ร้าน`, `${C.duration / 60} hours from your start time; sessions start every hour. Pay at the shop.`)}</p>
-    <a class="btn btn--primary" href="#book" data-go="book">${P("เลือกจำนวนคนและดูรอบว่าง", "Choose group size and see times")}</a>
-  </article></div>
+  <div class="section-head"><h2 id="price-title">${P("ราคาต่อรอบ", "Session prices")}</h2><p class="lede">${P(`Ice Bath + Sauna ใช้บริการได้ ${C.duration / 60} ชั่วโมง เริ่มรอบใหม่ทุกชั่วโมง ชำระที่ร้าน`, `Ice bath and sauna for ${C.duration / 60} hours. Sessions start every hour; pay at the shop.`)}</p></div>
+  <div class="prices">
+    <article class="price-tile"><h3>${P("1 คน", "1 person")}</h3><p class="price-amount">${baht(C.price)}</p><p class="price-sub">${P("ต่อคน", "per person")}</p></article>
+    ${pairOn() ? `<article class="price-tile price-tile--deal"><h3>${P("มา 2 คน", "2 people")}</h3><p class="price-amount">${baht(C.pair_price)}</p><p class="price-sub">${P(`ปกติ ${baht(C.price * 2)} · ใช้ราคาโปรได้ทุกคู่ในกลุ่ม`, `instead of ${baht(C.price * 2)}, for every pair in your group`)}</p></article>` : ""}
+  </div>
+  <p class="price-cta"><a class="btn btn--primary" href="#book" data-go="book">${P("ดูรอบว่างและจอง", "See times and book")}</a></p>
 </div></section>
 
 <section class="section" id="faq" aria-labelledby="faq-title"><div class="wrap">
-  <div class="section-head"><p class="eyebrow"><span></span>FAQ</p><h2 id="faq-title">${P("คำถามที่พบบ่อย", "Frequently asked questions")}</h2></div>
+  <div class="section-head"><h2 id="faq-title">${P("คำถามที่พบบ่อย", "Frequently asked questions")}</h2></div>
   <div class="faq">${faq.map(([q, a]) => `<details><summary>${esc(q)}</summary><div class="ans"><p>${esc(a)}</p></div></details>`).join("")}</div>
 </div></section>
 
 <section class="section section--tint" id="visit" aria-labelledby="loc-title"><div class="wrap loc">
-  <div><div class="section-head"><p class="eyebrow"><span></span>${P("การเดินทาง", "Getting here")}</p><h2 id="loc-title">${esc(P(C.address_th, C.address_en))}</h2></div>
+  <div><div class="section-head"><h2 id="loc-title">${esc(P(C.address_th, C.address_en))}</h2></div>
   <ul class="dir">
     <li><span class="ico">${ICON.train}</span><div><h3>BTS</h3><p>${P("ลงสถานีบางจาก ทางออก 2 เดินเข้าซอยสุขุมวิท 62 ประมาณ 5 นาที", "Bang Chak station, Exit 2, then about 5 minutes' walk into Sukhumvit 62.")}</p></div></li>
     <li><span class="ico">${ICON.car}</span><div><h3>${P("เดินทางด้วยรถยนต์", "By car")}</h3><p>${P("ที่จอดรถมีจำกัด โทรสอบถามก่อนเดินทางได้", "Parking is limited; call ahead if you're driving.")}</p></div></li>
