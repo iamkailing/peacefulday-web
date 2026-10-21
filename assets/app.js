@@ -586,6 +586,14 @@
     </div>
   </section>`;
   }
+  // the automatic check (edge function with the EasySlip key); if it can't answer, the team checks by hand
+  async function checkSlip(ref, token) {
+    const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 25000);
+    try {
+      const r = await fetch(CFG.url + "/functions/v1/pfd-slip", { method: "POST", headers: { apikey: CFG.key, "Content-Type": "application/json" }, body: JSON.stringify({ ref, token }), signal: ctl.signal });
+      return (await r.json()) || { status: "manual" };
+    } catch (e) { return { status: "manual" }; } finally { clearTimeout(t); }
+  }
   function bindPayBox() {
     clearInterval(holdTimer);
     const h = $("[data-hold]");
@@ -609,7 +617,11 @@
       try {
         const data = await slipData(f.files[0]);
         await rpc("submit_slip", { p_ref: R.ref, p_token: R.token, p_image: data });
-        R.flash = P("ส่งสลิปแล้ว ทีมงานจะตรวจและยืนยันการจองให้", "Slip sent. Our team will check it and confirm your booking."); R.flashErr = "";
+        send.textContent = P("กำลังตรวจสลิป…", "Checking your slip…");
+        const chk = await checkSlip(R.ref, R.token);
+        if (chk.status === "paid") { R.flash = P("ตรวจสลิปผ่านแล้ว การจองของคุณยืนยันเรียบร้อย แล้วพบกันที่สวน", "Slip checked. Your booking is confirmed. See you in the garden."); R.flashErr = ""; }
+        else if (chk.status === "rejected") { R.flashErr = P("สลิปนี้ยังใช้ไม่ได้: ", "This slip didn't pass: ") + (chk.reason || "") + P(" กรุณาแนบสลิปที่ถูกต้องอีกครั้ง หรือโทรหาเรา", ". Please attach the right slip, or call us."); R.flash = ""; }
+        else { R.flash = P("ส่งสลิปแล้ว ทีมงานจะตรวจและยืนยันการจองให้", "Slip sent. Our team will check it and confirm your booking."); R.flashErr = ""; }
       } catch (e) { R.flashErr = errText(e); R.flash = ""; }
       R.justBooked = false; render(); window.scrollTo(0, 0);
     });
@@ -997,7 +1009,7 @@
   }
   // the customer's slip, with the button that confirms the transfer
   function slipCard(b, slip) {
-    return `<section class="card slip-card"><h2>สลิปโอนเงิน</h2><p class="muted small">ส่งเมื่อ ${esc(dt(slip.at))} · ยอดที่ต้องได้ <b>${baht(b.total)}</b></p>
+    return `<section class="card slip-card"><h2>สลิปโอนเงิน</h2><p class="muted small">ส่งเมื่อ ${esc(dt(slip.at))} · ยอดที่ต้องได้ <b>${baht(b.total)}</b></p>${slip.result ? `<p class="small">ระบบตรวจอัตโนมัติ: ${esc(slip.result)}</p>` : ""}
       <a href="${slip.data}" target="_blank" rel="noopener" class="slip-img"><img src="${slip.data}" alt="สลิปโอนเงินของ ${esc(b.name)}"></a>
       ${b.pay === "review" ? `<div class="btn-row" style="margin-top:10px"><button class="btn btn--primary" type="button" data-slipok="${esc(b.ref)}">ยอดถูกต้อง ยืนยันรับโอน</button><button class="btn btn--small btn--danger" type="button" data-slipno="${esc(b.ref)}" data-confirm="กดอีกครั้ง: ยกเลิกการจองนี้">สลิปไม่ถูกต้อง ยกเลิกคิว</button></div><p class="muted small">เช็คในแอปธนาคารว่าเงินเข้าจริงก่อนกดยืนยัน</p>` : ""}</section>`;
   }
@@ -1067,6 +1079,7 @@
     <h2 style="margin-top:18px">รับเงินออนไลน์</h2>
     <p class="muted small">ลูกค้าจะเห็น QR พร้อมเพย์พร้อมยอดเงิน และบัญชีนี้ตอนจอง ใส่อย่างน้อยพร้อมเพย์หรือเลขบัญชี</p>
     <div class="form-grid">${inp("s-pp", "พร้อมเพย์ (เบอร์มือถือ / เลขผู้เสียภาษี / เลขอ้างอิง 15 หลักใต้ QR ของ K+)", cfg.promptpay || "", "text", ' inputmode="numeric"')}${inp("s-bank", "ธนาคาร", cfg.bank_name || "")}${inp("s-acct", "เลขบัญชี", cfg.bank_account || "", "text", ' inputmode="numeric"')}${inp("s-holder", "ชื่อบัญชี", cfg.bank_holder || "")}${inp("s-hold", "กันที่ให้ลูกค้าโอน (นาที)", cfg.hold_min || 15, "number", ' min="5" max="1440"')}</div>
+    <label class="check" style="margin-top:10px"><input type="checkbox" id="s-auto"${cfg.slip_auto !== false ? " checked" : ""}${can ? "" : " disabled"}> ตรวจสลิปอัตโนมัติด้วย EasySlip (ผ่านแล้วยืนยันการจองทันที ถ้าระบบตรวจไม่ได้ จะส่งมาให้ทีมงานตรวจเอง)</label>
     <h2 style="margin-top:18px">ข้อมูลร้าน</h2>
     <div class="form-grid">${inp("s-phone", "เบอร์โทรร้าน", cfg.phone)}${inp("s-line", "LINE ID", cfg.line)}${inp("s-addr", "ที่อยู่ (ไทย)", cfg.address_th)}${inp("s-addren", "ที่อยู่ (อังกฤษ)", cfg.address_en)}${inp("s-map", "ลิงก์ Google Maps", cfg.map_url)}</div>
     ${can ? '<p style="margin-top:14px"><button class="btn btn--primary" type="submit">บันทึก</button></p>' : ""}
@@ -1080,7 +1093,7 @@
       if (!times.every((x) => /^([01]\d|2[0-3]):[0-5]\d$/.test(x))) { R.flashErr = "รูปแบบเวลาไม่ถูกต้อง ใช้ HH:MM เช่น 09:00"; render(); return; }
       const num = (id) => Number($(id).value);
       act(async () => {
-        C = Object.assign(C, await rpc("staff_save_settings", { p: { price: num("#s-price"), pair_price: num("#s-pair"), capacity: num("#s-cap"), capacity_weekend: num("#s-capw"), duration: num("#s-dur"), max_group: num("#s-maxg"), times: Array.from(new Set(times)).sort(), closed: $$("[data-closed]").filter((c) => c.checked).map((c) => Number(c.dataset.closed)), lead_min: num("#s-lead"), horizon_days: num("#s-hor"), cancel_hours: num("#s-cut"), max_moves: num("#s-mm"), phone: $("#s-phone").value.trim(), line: $("#s-line").value.trim(), address_th: $("#s-addr").value.trim(), address_en: $("#s-addren").value.trim(), map_url: $("#s-map").value.trim(), promptpay: $("#s-pp").value.trim(), bank_name: $("#s-bank").value.trim(), bank_account: $("#s-acct").value.trim(), bank_holder: $("#s-holder").value.trim(), hold_min: num("#s-hold") } }, true));
+        C = Object.assign(C, await rpc("staff_save_settings", { p: { price: num("#s-price"), pair_price: num("#s-pair"), capacity: num("#s-cap"), capacity_weekend: num("#s-capw"), duration: num("#s-dur"), max_group: num("#s-maxg"), times: Array.from(new Set(times)).sort(), closed: $$("[data-closed]").filter((c) => c.checked).map((c) => Number(c.dataset.closed)), lead_min: num("#s-lead"), horizon_days: num("#s-hor"), cancel_hours: num("#s-cut"), max_moves: num("#s-mm"), phone: $("#s-phone").value.trim(), line: $("#s-line").value.trim(), address_th: $("#s-addr").value.trim(), address_en: $("#s-addren").value.trim(), map_url: $("#s-map").value.trim(), promptpay: $("#s-pp").value.trim(), bank_name: $("#s-bank").value.trim(), bank_account: $("#s-acct").value.trim(), bank_holder: $("#s-holder").value.trim(), hold_min: num("#s-hold"), slip_auto: $("#s-auto").checked } }, true));
         return "บันทึกแล้ว หน้าเว็บลูกค้าใช้ค่าใหม่ทันที";
       });
     });

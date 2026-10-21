@@ -35,6 +35,7 @@ insert into settings (id, data) values (1, jsonb_build_object(
 )) on conflict (id) do nothing;
 -- add settings that came later to a database created before them (keeps any value already set)
 update settings set data = jsonb_build_object('pair_price', 1100) || data where id = 1 and not data ? 'pair_price';
+update settings set data = jsonb_build_object('slip_auto', true) || data where id = 1 and not data ? 'slip_auto';
 update settings set data = jsonb_build_object('hold_min', 15, 'promptpay', '', 'bank_name', '', 'bank_account', '', 'bank_holder', '') || data where id = 1 and not data ? 'hold_min';
 -- online bookings are paid before the visit now, not at the shop
 update settings set data = data || '{"pay_mode":"transfer"}'::jsonb where id = 1 and data->>'pay_mode' = 'venue';
@@ -620,7 +621,7 @@ create or replace function staff_slip(p_ref text) returns jsonb
 language plpgsql stable security definer set search_path = public as $$
 begin
   perform _need('staff');
-  return (select jsonb_build_object('data', s.data, 'at', s.created_at) from slips s join bookings b on b.id = s.booking_id
+  return (select jsonb_build_object('data', s.data, 'at', s.created_at, 'result', s.result) from slips s join bookings b on b.id = s.booking_id
           where b.ref = upper(btrim(p_ref)) order by s.created_at desc limit 1);
 end $$;
 
@@ -718,7 +719,7 @@ end $$;
 
 create or replace function staff_save_settings(p jsonb) returns jsonb
 language plpgsql volatile security definer set search_path = public as $$
-declare allowed text[] := array['price','pair_price','capacity','capacity_weekend','duration','times','closed','lead_min','horizon_days','cancel_hours','max_moves','max_group','phone','line','address_th','address_en','map_url','hold_min','promptpay','bank_name','bank_account','bank_holder'];
+declare allowed text[] := array['price','pair_price','capacity','capacity_weekend','duration','times','closed','lead_min','horizon_days','cancel_hours','max_moves','max_group','phone','line','address_th','address_en','map_url','hold_min','promptpay','bank_name','bank_account','bank_holder','slip_auto'];
   k text; n jsonb := _cfg();
 begin
   perform _need('manager');
@@ -786,6 +787,52 @@ begin
   perform _log('', 'ลบพนักงาน ' || lower(btrim(p_email)));
 end $$;
 
+-- ---------- automatic slip check (called only by the pfd-slip edge function, which holds the EasySlip key) ----------
+-- the newest slip of a booking that is waiting for its check, with what the slip must match
+create or replace function slip_check_get(p_ref text, p_token uuid) returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare b bookings; sl slips; c jsonb := _cfg();
+begin
+  select * into b from bookings where ref = upper(p_ref) and token = p_token;
+  if not found then return null; end if;
+  select * into sl from slips where booking_id = b.id order by created_at desc limit 1;
+  if not found then return null; end if;
+  return jsonb_build_object('slip_id', sl.id, 'data', sl.data, 'pay', b.pay, 'status', b.status, 'total', b.total,
+    'created_at', b.created_at, 'auto', coalesce((c->>'slip_auto')::boolean, true),
+    'holder', coalesce(c->>'bank_holder', ''), 'account', coalesce(c->>'bank_account', ''), 'promptpay', coalesce(c->>'promptpay', ''));
+end $$;
+
+-- the result of the check: ok = paid straight away; a clear problem sends the booking back to "awaiting payment"
+-- so the customer can send the right slip; anything unsure (service down, slip not readable yet) waits for the team
+create or replace function slip_check_set(p_slip_id bigint, p_result text, p_ref text, p_amount numeric, p_note text) returns jsonb
+language plpgsql volatile security definer set search_path = public as $$
+declare sl slips; b bookings; c jsonb := _cfg();
+begin
+  select * into sl from slips where id = p_slip_id for update;
+  if not found then raise exception 'notfound'; end if;
+  select * into b from bookings where id = sl.booking_id for update;
+  update slips set result = left(coalesce(p_note, ''), 300), amount = p_amount where id = sl.id;
+  if b.pay <> 'review' or b.status <> 'confirmed' then return jsonb_build_object('status', b.pay); end if;
+  if p_result = 'ok' then
+    if exists (select 1 from slips where slip_ref = p_ref and id <> sl.id) then
+      p_result := 'bad'; p_note := 'สลิปนี้เคยใช้ชำระการจองอื่นไปแล้ว';
+      update slips set result = p_note where id = sl.id;
+    else
+      update slips set slip_ref = p_ref where id = sl.id;
+      update bookings set pay = 'paid', method = 'transfer', paid_at = now() where id = b.id;
+      insert into audit (who, ref, action) values ('ระบบ', b.ref, 'ตรวจสลิปอัตโนมัติผ่าน ' || coalesce(p_amount::text, '') || ' บาท' || case when coalesce(p_note, '') <> '' then ' (' || p_note || ')' else '' end);
+      return jsonb_build_object('status', 'paid');
+    end if;
+  end if;
+  if p_result = 'bad' then
+    update bookings set pay = 'await', hold_until = greatest(coalesce(hold_until, now()), now() + make_interval(mins => 10)) where id = b.id;
+    insert into audit (who, ref, action) values ('ระบบ', b.ref, 'สลิปไม่ผ่าน: ' || coalesce(p_note, ''));
+    return jsonb_build_object('status', 'rejected', 'reason', p_note);
+  end if;
+  insert into audit (who, ref, action) values ('ระบบ', b.ref, 'ตรวจสลิปอัตโนมัติไม่ได้ รอทีมงานตรวจ: ' || coalesce(p_note, ''));
+  return jsonb_build_object('status', 'manual', 'reason', p_note);
+end $$;
+
 -- ---------- who may call what ----------
 revoke execute on all functions in schema public from public, anon, authenticated;
 -- people booked per day, for the strip of days at the top of the queue page
@@ -829,4 +876,5 @@ grant execute on function staff_me(text), staff_day(date), staff_search(text), s
   staff_checkin(text, text), staff_take_payment(text, text), staff_set_status(text, text), staff_move(text, date, text, boolean),
   staff_note(text, text), staff_set_slot(date, text, boolean, int), staff_set_closed_day(date, boolean, text), staff_set_holiday(date, boolean, text), staff_closed_days(),
   staff_save_settings(jsonb), staff_overview(date), staff_days(date, int), staff_waiting(), staff_slip(text), staff_slips(), staff_export(date, date), staff_team(), staff_invite(text, text, text), staff_remove(text) to authenticated;
+grant execute on function slip_check_get(text, uuid), slip_check_set(bigint, text, text, numeric, text) to service_role;
 -- helpers run inside the functions above (which run as the owner), so nobody needs to call them directly
