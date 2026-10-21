@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 800" role="img" aria-label="Sample illustration: water ripples with a floating leaf">
-<rect width="1000" height="800" fill="#cfe6e1"/>
-<g fill="none" stroke="#ffffff" stroke-width="5" opacity=".7">
-<ellipse cx="420" cy="420" rx="120" ry="60"/><ellipse cx="420" cy="420" rx="220" ry="110" opacity=".7"/><ellipse cx="420" cy="420" rx="330" ry="165" opacity=".45"/><ellipse cx="420" cy="420" rx="450" ry="225" opacity=".25"/>
-</g>
-<path d="M420 420c60-90 170-120 260-90-50 90-160 130-260 90Z" fill="#557f64"/>
-<path d="M420 420c70-40 150-60 250-90" stroke="#2f5b45" stroke-width="5" fill="none"/>
-<circle cx="840" cy="140" r="80" fill="#f2e27d" opacity=".75"/>
-</svg>
