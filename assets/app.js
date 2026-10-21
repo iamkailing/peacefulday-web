@@ -1030,6 +1030,18 @@
     else if (["home", "book", "my"].concat(ADMIN.filter((x) => x !== "abooking")).includes(v)) R.view = v;
     else R.view = "home";
   }
+  // back-office screens fetch fresh data on their own: every 30 seconds, and whenever the tab comes back into view,
+  // but never while someone is typing or has a form or panel open
+  const LIVE = ["queue", "aday", "admin", "asearch"];
+  function quietRefresh() {
+    if (!LIVE.includes(R.view) || !session || document.hidden || R.busy) return;
+    const a = document.activeElement;
+    if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return;
+    if (R.qn || R.qre || R.qCheckin || R.qOpen || R.checkinFor) return;
+    const y = window.scrollY; R.flash = ""; render().then(() => window.scrollTo(0, y));
+  }
+  setInterval(quietRefresh, 30000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) quietRefresh(); });
   window.addEventListener("popstate", () => { fromHash(); render(); });
   fromHash();
   render();
