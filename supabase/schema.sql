@@ -84,6 +84,10 @@ create table if not exists bookings (
   cancelled_at timestamptz
 );
 alter table bookings add column if not exists user_id uuid;
+alter table bookings add column if not exists package text not null default '';  -- coupon package used (Happy Duo, Member 1 …)
+-- 'waiting' = the customer will pick a new day later; it holds no place in any session
+alter table bookings drop constraint if exists bookings_status_check;
+alter table bookings add constraint bookings_status_check check (status in ('confirmed','checked_in','cancelled','no_show','waiting'));
 create index if not exists bookings_slot on bookings (day, hm);
 create index if not exists bookings_user on bookings (user_id);
 create index if not exists bookings_phone on bookings (phone);
@@ -204,6 +208,10 @@ begin
     'can_move', b.status = 'confirmed' and now() < cut and b.moves < (c->>'max_moves')::int,
     'cutoff', cut);
 end $$;
+
+-- what the team sees for a booking: the customer view plus the team's own fields
+create or replace function _staff_json(b bookings) returns jsonb language sql stable set search_path = public as $$
+  select _booking_json(b) || jsonb_build_object('staff_note', b.staff_note, 'package', b.package, 'paid_at', b.paid_at, 'cancelled_at', b.cancelled_at) $$;
 
 -- the signed-in customer (email confirmed with a one-time code); anonymous visitors cannot book
 create or replace function _customer_email() returns text language plpgsql stable as $$
@@ -363,13 +371,14 @@ begin
     'slots', coalesce((select jsonb_agg(jsonb_build_object(
         'hm', s.hm, 'end', to_char(s.hm::time + make_interval(mins => (c->>'duration')::int), 'HH24:MI'),
         'capacity', s.capacity, 'blocked', s.blocked, 'used', s.used,
-        'bookings', coalesce((select jsonb_agg(_booking_json(b) order by b.created_at) from bookings b
-                              where b.day = p_day and b.hm = s.hm and b.status <> 'cancelled'), '[]'::jsonb))
+        'bookings', coalesce((select jsonb_agg(_staff_json(b) order by b.created_at) from bookings b
+                              where b.day = p_day and b.hm = s.hm and b.status not in ('cancelled','waiting')), '[]'::jsonb))
         order by s.hm)
       from _slots(p_day) s), '[]'::jsonb),
-    'off_schedule', coalesce((select jsonb_agg(_booking_json(b)) from bookings b
-        where b.day = p_day and b.status <> 'cancelled'
-          and not exists (select 1 from _slots(p_day) z where z.hm = b.hm)), '[]'::jsonb));
+    'off_schedule', coalesce((select jsonb_agg(_staff_json(b)) from bookings b
+        where b.day = p_day and b.status not in ('cancelled','waiting')
+          and not exists (select 1 from _slots(p_day) z where z.hm = b.hm)), '[]'::jsonb),
+    'cancelled', (select count(*) from bookings where day = p_day and status = 'cancelled'));
 end $$;
 
 create or replace function staff_search(p_q text) returns jsonb
@@ -378,7 +387,7 @@ declare q text := lower(btrim(coalesce(p_q, ''))); digits text := _phone(p_q);
 begin
   perform _need('staff');
   return coalesce((select jsonb_agg(x.j order by x.day desc, x.hm desc) from (
-    select _booking_json(b) j, b.day, b.hm from bookings b
+    select _staff_json(b) j, b.day, b.hm from bookings b
     where q = '' or lower(b.name) like '%' || q || '%' or lower(b.ref) = q
        or (length(digits) >= 4 and b.phone like '%' || digits || '%')
     order by b.day desc, b.hm desc limit 150) x), '[]'::jsonb);
@@ -391,32 +400,41 @@ begin
   perform _need('staff');
   select * into b from bookings where ref = upper(btrim(p_ref));
   if not found then return null; end if;
-  return _booking_json(b) || jsonb_build_object('staff_note', b.staff_note, 'cancelled_at', b.cancelled_at, 'paid_at', b.paid_at,
+  return _staff_json(b) || jsonb_build_object(
     'history', coalesce((select jsonb_agg(jsonb_build_object('at', at, 'who', who, 'action', action) order by at desc)
                          from audit where ref = b.ref), '[]'::jsonb));
 end $$;
 
 create or replace function staff_create_booking(p jsonb) returns jsonb
 language plpgsql volatile security definer set search_path = public as $$
+-- pay_type: venue = pays at the shop, online = already transferred, package = uses a coupon package, free = review / influencer / guest
 declare c jsonb := _cfg(); r text := _need('staff'); v_day date := (p->>'day')::date; v_hm text := p->>'hm';
   v_people int := (p->>'people')::int; v_name text := btrim(coalesce(p->>'name', '')); v_phone text := _phone(p->>'phone');
-  v_over boolean := coalesce((p->>'over')::boolean, false); v_free boolean := coalesce((p->>'free')::boolean, false);
+  v_over boolean := coalesce((p->>'over')::boolean, false);
+  v_type text := coalesce(nullif(p->>'pay_type', ''), case when coalesce((p->>'free')::boolean, false) then 'free' else 'venue' end);
+  v_pkg text := left(btrim(coalesce(p->>'package', '')), 60);
   v_channel text := coalesce(nullif(p->>'channel', ''), 'walk_in'); s record; b bookings;
 begin
   if length(v_name) < 1 or length(v_name) > 120 then raise exception 'name'; end if;
   if v_phone <> '' and v_phone !~ '^0[2-9][0-9]{7,8}$' then raise exception 'phone'; end if;
   if v_people is null or v_people < 1 or v_people > 50 then raise exception 'people'; end if;
-  if (v_over or v_free) and r = 'staff' then raise exception 'forbidden'; end if;
+  if v_type not in ('venue','online','package','free') then raise exception 'method'; end if;
+  if v_type = 'package' and v_pkg = '' then raise exception 'package'; end if;
+  if v_over and r = 'staff' then raise exception 'forbidden'; end if;
   perform pg_advisory_xact_lock(hashtext('slot:' || v_day || ' ' || v_hm));
   select * into s from _slots(v_day) x where x.hm = v_hm;
   if not found then raise exception 'slot_closed'; end if;
   if s.capacity - s.used < v_people and not v_over then raise exception 'slot_full'; end if;
-  insert into bookings (ref, day, hm, people, name, phone, email, note, total, channel, pay)
-  values (_ref(), v_day, v_hm, v_people, v_name, v_phone, lower(btrim(coalesce(p->>'email', ''))), left(coalesce(p->>'note', ''), 500),
-          case when v_free then 0 else _total(v_people) end, v_channel, case when v_free then 'none' else 'due' end)
+  insert into bookings (ref, day, hm, people, name, phone, email, note, staff_note, total, channel, pay, method, package, paid_at)
+  values (_ref(), v_day, v_hm, v_people, v_name, v_phone, lower(btrim(coalesce(p->>'email', ''))), '', left(coalesce(p->>'note', ''), 1000),
+          case v_type when 'venue' then _total(v_people) when 'online' then _total(v_people) else 0 end, v_channel,
+          case v_type when 'venue' then 'due' when 'free' then 'none' else 'paid' end,
+          case v_type when 'online' then 'transfer' when 'package' then 'package' else '' end,
+          case when v_type = 'package' then v_pkg else '' end,
+          case when v_type in ('online','package') then now() end)
   returning * into b;
-  perform _log(b.ref, 'สร้างการจอง (' || v_channel || ')' || case when v_free then ' ไม่คิดเงิน' else '' end || case when v_over then ' เกินความจุ' else '' end);
-  return _booking_json(b);
+  perform _log(b.ref, 'สร้างการจอง (' || v_channel || ', ' || case v_type when 'venue' then 'ชำระหน้าร้าน' when 'online' then 'ชำระออนไลน์แล้ว' when 'package' then 'คูปอง ' || v_pkg else 'ไม่มีค่าใช้จ่าย' end || ')' || case when v_over then ' เกินความจุ' else '' end);
+  return _staff_json(b);
 end $$;
 
 create or replace function staff_checkin(p_ref text, p_method text) returns jsonb
@@ -457,7 +475,9 @@ begin
   if not found then raise exception 'notfound'; end if;
   if p_status = 'no_show' and b.status = 'confirmed' then
     update bookings set status = 'no_show' where id = b.id returning * into b;
-  elsif p_status = 'cancelled' and b.status in ('confirmed','no_show') then
+  elsif p_status = 'waiting' and b.status = 'confirmed' then
+    update bookings set status = 'waiting' where id = b.id returning * into b;
+  elsif p_status = 'cancelled' and b.status in ('confirmed','no_show','waiting') then
     update bookings set status = 'cancelled', cancelled_at = now(), pay = case when pay = 'due' then 'none' else pay end
      where id = b.id returning * into b;
   elsif p_status = 'confirmed' and b.status in ('checked_in','no_show') then
@@ -470,20 +490,22 @@ end $$;
 
 create or replace function staff_move(p_ref text, p_day date, p_hm text, p_over boolean) returns jsonb
 language plpgsql volatile security definer set search_path = public as $$
-declare b bookings; s record; old text; r text := _need('staff');
+declare b bookings; s record; old text; r text := _need('staff'); free_now int;
 begin
   if p_over and r = 'staff' then raise exception 'forbidden'; end if;
   select * into b from bookings where ref = upper(p_ref) for update;
   if not found then raise exception 'notfound'; end if;
-  if b.status <> 'confirmed' then raise exception 'change_closed'; end if;
+  if b.status not in ('confirmed','waiting') then raise exception 'change_closed'; end if;
   perform pg_advisory_xact_lock(hashtext('slot:' || p_day || ' ' || p_hm));
   select * into s from _slots(p_day) x where x.hm = p_hm;
   if not found then raise exception 'slot_closed'; end if;
-  if s.capacity - s.used < b.people and not coalesce(p_over, false) then raise exception 'slot_full'; end if;
-  old := b.day || ' ' || b.hm;
-  update bookings set day = p_day, hm = p_hm where id = b.id returning * into b;
+  free_now := s.capacity - s.used;
+  if b.status = 'confirmed' and b.day = p_day and b.hm = p_hm then free_now := free_now + b.people; end if;
+  if free_now < b.people and not coalesce(p_over, false) then raise exception 'slot_full'; end if;
+  old := case when b.status = 'waiting' then 'รอนัดวันใหม่' else b.day || ' ' || b.hm end;
+  update bookings set day = p_day, hm = p_hm, status = 'confirmed' where id = b.id returning * into b;
   perform _log(b.ref, 'ย้ายรอบจาก ' || old);
-  return _booking_json(b);
+  return _staff_json(b);
 end $$;
 
 create or replace function staff_note(p_ref text, p_note text) returns void
@@ -548,7 +570,7 @@ create or replace function staff_overview(p_day date) returns jsonb
 language plpgsql stable security definer set search_path = public as $$
 declare d0 date := p_day - 13;
 begin
-  perform _need('staff');
+  perform _need('manager');  -- money figures: owner and managers only
   return jsonb_build_object(
     'days', (select jsonb_agg(jsonb_build_object(
         'day', g::date,
@@ -592,11 +614,44 @@ end $$;
 
 -- ---------- who may call what ----------
 revoke execute on all functions in schema public from public, anon, authenticated;
+-- people booked per day, for the strip of days at the top of the queue page
+create or replace function staff_days(p_from date, p_days int) returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare out jsonb := '[]'::jsonb; d date;
+begin
+  perform _need('staff');
+  for i in 0..least(greatest(coalesce(p_days, 14), 1), 62) - 1 loop
+    d := p_from + i;
+    out := out || jsonb_build_array(jsonb_build_object('day', d,
+      'closed', not exists (select 1 from _slots(d)),
+      'people', coalesce((select sum(people) from bookings where day = d and status in ('confirmed','checked_in','no_show')), 0)));
+  end loop;
+  return out;
+end $$;
+
+-- bookings waiting for the customer to choose a new day
+create or replace function staff_waiting() returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+begin
+  perform _need('staff');
+  return coalesce((select jsonb_agg(_staff_json(b) order by b.day, b.hm) from bookings b where b.status = 'waiting'), '[]'::jsonb);
+end $$;
+
+-- every booking in a date range, for the CSV download
+create or replace function staff_export(p_from date, p_to date) returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+begin
+  perform _need('staff');
+  if p_to - p_from > 400 then raise exception 'settings'; end if;
+  return coalesce((select jsonb_agg(_staff_json(b) order by b.day, b.hm, b.created_at) from bookings b
+                   where b.day between p_from and p_to), '[]'::jsonb);
+end $$;
+
 grant execute on function public_config(), availability(date, int, int), get_booking(text, uuid),
   find_booking(text, text), cancel_booking(text, uuid), move_booking(text, uuid, date, text) to anon, authenticated;
 grant execute on function create_booking(jsonb), my_bookings() to authenticated;
 grant execute on function staff_me(), staff_day(date), staff_search(text), staff_booking(text), staff_create_booking(jsonb),
   staff_checkin(text, text), staff_take_payment(text, text), staff_set_status(text, text), staff_move(text, date, text, boolean),
   staff_note(text, text), staff_set_slot(date, text, boolean, int), staff_set_closed_day(date, boolean, text), staff_set_holiday(date, boolean, text), staff_closed_days(),
-  staff_save_settings(jsonb), staff_overview(date), staff_team(), staff_invite(text, text, text), staff_remove(text) to authenticated;
+  staff_save_settings(jsonb), staff_overview(date), staff_days(date, int), staff_waiting(), staff_export(date, date), staff_team(), staff_invite(text, text, text), staff_remove(text) to authenticated;
 -- helpers run inside the functions above (which run as the owner), so nobody needs to call them directly

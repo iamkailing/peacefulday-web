@@ -921,3 +921,63 @@ body[data-mode=adm]{background:#f6f5ee}
 .pub .time[aria-pressed=true] span.low { color: #fbdb00; }
 .pub .time span.low { font-weight: 600; }
 .pub .time[aria-pressed=true] span.until { color: #e7eddb; }
+/* ---------- queue page (แอดมินจองคิว) ---------- */
+.q-page { min-height: 100vh; background: #f6f5ef; }
+.q-wrap { max-width: 1040px; margin: 0 auto; padding: 24px 16px 60px; }
+.q-head { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: flex-start; justify-content: space-between; margin-bottom: 14px; }
+.q-head h1 { display: flex; align-items: center; gap: 10px; font-size: 1.35rem; margin: 0; }
+.q-head h1 img, .q-head h1 svg { width: 34px; height: 34px; }
+.q-head p { margin: 4px 0 0; }
+.q-tabs { display: flex; gap: 4px; border-bottom: 1px solid #dcdccf; margin: 8px 0 16px; overflow-x: auto; }
+.q-tabs button { font: inherit; background: none; border: 0; padding: 10px 14px; color: #5b6152; cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; }
+.q-tabs button[aria-current] { color: #264006; font-weight: 600; border-bottom-color: #264006; }
+.q-tabs .count { display: inline-block; min-width: 20px; padding: 0 6px; border-radius: 999px; background: #fbdb00; color: #264006; font-size: .75rem; text-align: center; }
+.q-days { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 6px; align-items: stretch; scroll-snap-type: x proximity; }
+.q-days .q-shift { flex: none; }
+.q-day { flex: none; width: 62px; padding: 8px 2px; border-radius: 12px; border: 1px solid #dcdccf; background: #fff; font: inherit; text-align: center; cursor: pointer; line-height: 1.2; scroll-snap-align: start; color: #20251b; }
+.q-day .w { display: block; font-size: .72rem; color: #6a6f60; }
+.q-day .n { display: block; font-size: 1.3rem; font-weight: 600; }
+.q-day .c { display: block; font-size: .7rem; color: #6a6f60; }
+.q-day.closed { background: #efeee8; border-style: dashed; }
+.q-day.closed .n, .q-day.closed .c { color: #a3a597; }
+.q-day.on { background: #264006; border-color: #264006; color: #fff; }
+.q-day.on .w, .q-day.on .c { color: #e9f0d8; }
+.q-day:focus-visible, .q-tabs button:focus-visible { outline: 2px solid #264006; outline-offset: 2px; }
+.q-dayhead { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 14px 0 8px; }
+.q-dayhead h2 { flex: 1 1 260px; margin: 0; font-size: 1.15rem; }
+.q-dayhead input[type=date] { width: auto; }
+.q-stats { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 4px 0 6px; color: #5b6152; }
+.q-stat b { color: #20251b; font-size: 1.1rem; }
+.q-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: .8rem; color: #6a6f60; margin: 0 0 12px; }
+.q-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.q-page .dot { display: inline-block; flex: none; width: 10px; height: 10px; border-radius: 50%; }
+.q-page .dot--online { background: #2f7fc1; } .q-page .dot--venue { background: #e59b24; } .q-page .dot--package { background: #8a5cc2; } .q-page .dot--free { background: #9a9d92; }
+.q-slots { display: grid; gap: 10px; }
+.q-slot { background: #fff; border: 1px solid #e3e3d8; border-radius: 14px; padding: 12px 14px; }
+.q-slot.is-blocked { opacity: .65; }
+.q-slot-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.q-slot-head b { font-size: 1.05rem; min-width: 104px; }
+.q-slot-head .meter { flex: 0 1 160px; }
+.q-slot-head .btn { margin-left: auto; }
+.q-slot ul, .q-list { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 6px; }
+.q-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 8px 10px; border-radius: 10px; background: #fafaf5; }
+.q-list .q-row { background: #fff; border: 1px solid #e3e3d8; }
+.q-row.is-in { background: #eef5e6; }
+.q-row.is-off { opacity: .6; }
+.q-who { flex: 1 1 220px; min-width: 0; }
+.q-note { display: block; font-size: .8rem; color: #6a6f60; overflow-wrap: anywhere; }
+.q-tags { display: flex; gap: 4px; flex-wrap: wrap; }
+.q-act { display: flex; gap: 4px; margin-left: auto; }
+.q-panel { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding-top: 6px; border-top: 1px dashed #dcdccf; }
+.q-closed { text-align: center; padding: 40px 16px; }
+.q-closed h3 { margin: 0 0 6px; }
+.q-form { margin-bottom: 16px; border: 2px solid #264006; }
+.q-form-head { display: flex; justify-content: space-between; align-items: center; }
+.q-form-head h2 { margin: 0; }
+.q-label { margin: 12px 0 6px; font-weight: 600; font-size: .9rem; }
+.q-pts { display: flex; flex-wrap: wrap; gap: 6px; }
+.q-pt input { position: absolute; opacity: 0; pointer-events: none; }
+.q-pt span { display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; border-radius: 10px; border: 1px solid #dcdccf; background: #fff; cursor: pointer; font-size: .9rem; }
+.q-pt input:checked + span { border-color: #264006; background: #f1f6e6; font-weight: 600; box-shadow: inset 0 0 0 1px #264006; }
+.q-pt input:focus-visible + span { outline: 2px solid #264006; outline-offset: 2px; }
+@media (max-width: 560px) { .q-head .btn-row { width: 100%; } .q-head .btn-row .btn { flex: 1 1 auto; } .q-slot-head .btn { margin-left: 0; } }

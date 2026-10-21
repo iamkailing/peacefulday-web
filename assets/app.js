@@ -163,6 +163,7 @@
     settings: ["ค่าที่ตั้งไม่ถูกต้อง", "Some settings aren't valid."],
     method: ["เลือกวิธีรับเงินก่อน", "Choose how the payment was made."],
     login: ["เข้าสู่ระบบก่อนจอง", "Please sign in first."],
+    package: ["ใส่ชื่อแพ็กเกจก่อน", "Enter the package name."],
   };
   const errText = (e) => { const m = ERR[e && e.code] || ERR[e && e.message]; return m ? P(m[0], m[1]) : P("ระบบขัดข้อง ลองใหม่อีกครั้ง", "Something went wrong. Please try again."); };
 
@@ -595,16 +596,17 @@
 
 
   // ================= back office =================
-  const ROLE = { owner: "เจ้าของ", manager: "ผู้จัดการ", staff: "พนักงาน" };
-  const ST = { confirmed: ["จองแล้ว", "badge--ok"], checked_in: ["เช็คอินแล้ว", "badge--ok"], cancelled: ["ยกเลิก", "badge--bad"], no_show: ["ไม่มา", "badge--bad"] };
+  const ROLE = { owner: "เจ้าของ", manager: "ผู้จัดการ", staff: "แอดมินจองคิว" };
+  const ST = { confirmed: ["จองแล้ว", "badge--ok"], checked_in: ["เช็คอินแล้ว", "badge--ok"], cancelled: ["ยกเลิก", "badge--bad"], no_show: ["ไม่มา", "badge--bad"], waiting: ["รอนัดวันใหม่", "badge--warn"] };
   const PAY = { due: ["รอเก็บเงิน", "badge--warn"], paid: ["ชำระแล้ว", "badge--ok"], none: ["ไม่มียอด", "badge--muted"] };
   const METHOD = { cash: "เงินสด", transfer: "โอน", card: "บัตร", qr: "QR" };
+  const METHOD_ALL = Object.assign({ package: "คูปองแพ็กเกจ" }, METHOD);
   const CH = { web: "เว็บ", walk_in: "Walk-in", phone: "โทร", line: "LINE" };
   const badge = (m, k) => `<span class="badge ${(m[k] || ["", ""])[1]}">${(m[k] || [k])[0]}</span>`;
-  const ADMIN = ["admin", "aday", "abooking", "anew", "asearch", "asettings", "ateam", "apassword"];
+  const ADMIN = ["admin", "queue", "aday", "abooking", "anew", "asearch", "asettings", "ateam", "apassword"];
 
   function admLayout(main) {
-    const nav = [["admin", "ภาพรวมวันนี้"], ["aday", "ตารางรอบ"], ["anew", "+ สร้างการจอง"], ["asearch", "ค้นหาการจอง"], ["asettings", "ตั้งค่าร้าน"], ["ateam", "ทีมงาน"]];
+    const nav = [["admin", "ภาพรวมวันนี้"], ["queue", "หน้าจองคิว (แอดมิน)"], ["aday", "ตารางรอบ"], ["anew", "+ สร้างการจอง"], ["asearch", "ค้นหาการจอง"], ["asettings", "ตั้งค่าร้าน"], ["ateam", "ทีมงาน"]];
     const cur = R.view === "abooking" ? "aday" : R.view;
     return `<div class="adm"><div class="shell">
   <aside class="side${R.sideOpen ? " is-open" : ""}">
@@ -732,7 +734,7 @@
       <dt>รอบ</dt><dd><b>${esc(dLong(b.day, "th-TH"))} ${esc(b.hm)}–${esc(b.end)}</b></dd>
       <dt>จำนวนคน</dt><dd>${b.people}</dd>
       <dt>ลูกค้า</dt><dd>${esc(b.name)}${b.phone ? " · " + esc(fmtPhone(b.phone)) : ""}${b.email ? " · " + esc(b.email) : ""}</dd>
-      <dt>ยอด</dt><dd>${baht(b.total)}${b.method ? " · " + (METHOD[b.method] || esc(b.method)) : ""}</dd>
+      <dt>ยอด</dt><dd>${baht(b.total)}${b.method ? " · " + (METHOD_ALL[b.method] || esc(b.method)) : ""}${b.package ? " · " + esc(b.package) : ""}</dd>
       <dt>ช่องทาง</dt><dd>${CH[b.channel] || esc(b.channel)} · จองเมื่อ ${esc(dt(b.created_at))}${b.moves ? ` · ลูกค้าเลื่อนแล้ว ${b.moves} ครั้ง` : ""}</dd>
       ${b.note ? `<dt>ลูกค้าแจ้ง</dt><dd>“${esc(b.note)}”</dd>` : ""}
     </dl></section>
@@ -832,7 +834,7 @@
     ${t.invites.map((s) => `<tr class="is-dim"><td>${esc(s.email)}</td><td>${esc(s.name)}</td><td>${ROLE[s.role]} (รอสร้างบัญชี)</td><td>${ME.role === "owner" ? `<button class="btn btn--small btn--ghost" type="button" data-remove="${esc(s.email)}">ยกเลิกคำเชิญ</button>` : ""}</td></tr>`).join("")}
   </tbody></table></div></section>
   ${ME.role === "owner" ? `<form class="card" id="inv"><h2>เชิญทีมงาน</h2><p class="muted">เพิ่มอีเมลที่นี่ แล้วให้ทีมงานเปิดหน้า “สำหรับทีมงาน” กด “สร้างบัญชีด้วยอีเมลที่ได้รับเชิญ”</p>
-    <div class="form-grid"><div class="field"><label for="i-email">อีเมล</label><input type="email" id="i-email" required></div><div class="field"><label for="i-name">ชื่อ</label><input type="text" id="i-name"></div><div class="field"><label for="i-role">ตำแหน่ง</label><select id="i-role"><option value="staff">พนักงาน (เช็คอิน รับเงิน สร้างการจอง)</option><option value="manager">ผู้จัดการ (+ ปิดรอบ ตั้งค่า)</option></select></div></div>
+    <div class="form-grid"><div class="field"><label for="i-email">อีเมล</label><input type="email" id="i-email" required></div><div class="field"><label for="i-name">ชื่อ</label><input type="text" id="i-name"></div><div class="field"><label for="i-role">ตำแหน่ง</label><select id="i-role"><option value="staff">แอดมินจองคิว (เข้าได้แค่หน้าจองคิว: จองให้ลูกค้า เช็คอิน รับเงิน)</option><option value="manager">ผู้จัดการ (+ ปิดรอบ ตั้งค่า)</option></select></div></div>
     <p><button class="btn btn--primary" type="submit">เพิ่มคำเชิญ</button></p></form>` : ""}`);
   }
   function bindTeam() {
@@ -844,6 +846,135 @@
     return admLayout(`<div class="topline"><h1>${R.recovery ? "ตั้งรหัสผ่านใหม่" : "เปลี่ยนรหัสผ่าน"}</h1></div><form class="card" id="pw" style="max-width:460px"><div class="field"><label for="pw1">รหัสผ่านใหม่ (อย่างน้อย 8 ตัว)</label><input type="password" id="pw1" autocomplete="new-password" minlength="8" required></div><p><button class="btn btn--primary" type="submit">บันทึกรหัสผ่าน</button></p></form>`);
   }
   function bindPassword() { $("#pw").addEventListener("submit", (e) => { e.preventDefault(); act(async () => { await setPassword($("#pw1").value); R.recovery = false; return "เปลี่ยนรหัสผ่านแล้ว"; }); }); }
+
+  // ================= queue page: a separate, simple page for admins who take bookings for customers =================
+  const PT = { online: ["ชำระออนไลน์", "online"], venue: ["ชำระหน้าร้าน", "venue"], package: ["คูปองแพ็กเกจ", "package"], free: ["ไม่มีค่าใช้จ่าย (รีวิว/Influ)", "free"] };
+  const payType = (b) => (b.pay === "none" ? "free" : b.pay === "due" ? "venue" : b.method === "package" || b.package ? "package" : "online");
+  const PKGS = ["Happy Duo", "Happy Duo+1", "Happy Duo+2", "Happy Duo*2", "Happy Group", "Member 1"];
+  const cleanNote = (n) => (n || "").replace(/^นำเข้าจาก Google Sheet:?\s*/, "").replace(/\s*\(จ่ายแล้วก่อนย้ายระบบ\)$/, "");
+  function qHeader() {
+    const closedNames = (C.closed || []).map((d) => thDays[d]).join(" ");
+    const times = C.times || [];
+    return `<header class="q-head"><div><h1>${LOGO}<span>Peaceful Day · จองคิว</span></h1><p class="muted small">${closedNames ? "ร้านหยุดทุกวัน" + esc(closedNames) + " · " : ""}รอบ ${esc(times[0] || "")}–${esc(times[times.length - 1] || "")} · อยู่ได้ ${C.duration / 60} ชม.</p></div>
+      <div class="btn-row"><button class="btn" type="button" data-qcsv>ส่งออก CSV</button><button class="btn btn--primary" type="button" data-qnew>+ จองคิวใหม่</button>${ME.role !== "staff" ? `<a class="btn btn--ghost" href="#admin" data-go="admin">หลังบ้าน</a>` : `<button class="btn btn--ghost" type="button" data-signout>ออกจากระบบ</button>`}</div></header>
+      ${R.flash ? `<div class="alert alert--ok" role="status">${esc(R.flash)}</div>` : ""}${R.flashErr ? `<div class="alert alert--bad" role="alert">${esc(R.flashErr)}</div>` : ""}`;
+  }
+  function qRow(b, opts) {
+    const t = payType(b), o = opts || {};
+    const note = [b.package ? b.package : "", cleanNote(b.staff_note), b.note ? "ลูกค้าแจ้ง: " + b.note : ""].filter(Boolean).join(" · ");
+    const open = R.qOpen === b.ref;
+    return `<li class="q-row${b.status === "checked_in" ? " is-in" : ""}${b.status === "no_show" ? " is-off" : ""}">
+      <span class="dot dot--${PT[t][1]}" title="${PT[t][0]}"></span>
+      <div class="q-who"><b>${esc(b.name)}</b> <span class="muted">${b.people} คน${b.phone ? " · " + esc(fmtPhone(b.phone)) : ""}${o.when ? " · " + esc(dShort(b.day, "th-TH")) + " " + esc(b.hm) : ""}</span>${note ? `<span class="q-note">${esc(note)}</span>` : ""}</div>
+      <span class="q-tags">${b.status === "checked_in" ? '<span class="badge badge--ok">มาแล้ว</span>' : b.status === "no_show" ? '<span class="badge badge--bad">ไม่มา</span>' : b.status === "cancelled" ? '<span class="badge badge--bad">ยกเลิก</span>' : b.status === "waiting" ? '<span class="badge badge--warn">รอนัดวันใหม่</span>' : ""}${t === "venue" && b.status !== "cancelled" ? `<span class="badge badge--warn">เก็บ ${baht(b.total)}</span>` : ""}</span>
+      <span class="q-act">${o.waiting ? `<button class="btn btn--small btn--primary" type="button" data-qre="${esc(b.ref)}">นัดวันใหม่</button>` : b.status === "confirmed" && !o.when ? `<button class="btn btn--small btn--primary" type="button" data-qin="${esc(b.ref)}" data-due="${t === "venue" ? 1 : 0}">เช็คอิน</button>` : ""}${b.status !== "cancelled" ? `<button class="btn btn--small btn--ghost" type="button" data-qmore="${esc(b.ref)}" aria-expanded="${open}">⋯</button>` : ""}</span>
+      ${R.qCheckin === b.ref ? `<div class="q-panel">รับเงิน ${baht(b.total)} ด้วย ${Object.entries(METHOD).map(([k, l]) => `<button class="btn btn--small btn--primary" type="button" data-qpay="${k}">${l}</button>`).join("")}<button class="btn btn--small" type="button" data-qpay="">ยังไม่รับเงิน</button></div>` : ""}
+      ${open ? `<div class="q-panel">${b.status === "confirmed" ? `<button class="btn btn--small" type="button" data-qst="waiting|${esc(b.ref)}">ย้ายไปรอนัดวันใหม่</button><button class="btn btn--small" type="button" data-qst="no_show|${esc(b.ref)}">ไม่มา</button>` : ""}${b.status === "checked_in" || b.status === "no_show" ? `<button class="btn btn--small" type="button" data-qst="confirmed|${esc(b.ref)}">ย้อนเป็นจองแล้ว</button>` : ""}${["confirmed", "waiting", "no_show"].includes(b.status) ? `<button class="btn btn--small btn--danger" type="button" data-qst="cancelled|${esc(b.ref)}" data-confirm="กดอีกครั้งเพื่อยกเลิก">ยกเลิกคิว</button>` : ""}<span class="muted small">${esc(b.ref)} · ${CH[b.channel] || esc(b.channel)}</span>${ME.role !== "staff" ? ` <a class="small" href="#abooking" data-aref="${esc(b.ref)}">รายละเอียด</a>` : ""}</div>` : ""}
+    </li>`;
+  }
+  function qForm(slots) {
+    const N = R.qn;
+    const types = Object.entries(PT).map(([k, [l]]) => `<label class="q-pt"><input type="radio" name="qn-pt" value="${k}"${N.pt === k ? " checked" : ""}><span><i class="dot dot--${PT[k][1]}"></i>${l}</span></label>`).join("");
+    return `<form class="card q-form" id="qn"><div class="q-form-head"><h2>จองคิวใหม่</h2><button class="btn btn--small btn--ghost" type="button" data-qclose>ปิด</button></div>
+      <div class="form-grid"><div class="field"><label for="qn-day">วันที่</label><input type="date" id="qn-day" value="${N.day}"></div><div class="field"><label for="qn-people">จำนวนคน</label><input type="number" id="qn-people" min="1" max="50" value="${N.people}"></div></div>
+      <p class="q-label">เวลา</p><div class="btn-row">${slots.length ? slots.map((s) => { const left = Math.max(0, s.capacity - s.used); return `<button type="button" class="btn btn--small${N.hm === s.hm ? " btn--primary" : ""}" data-qnhm="${s.hm}"${s.blocked ? " disabled" : ""}>${s.hm} · ${s.blocked ? "ปิด" : left ? "ว่าง " + left : "เต็ม"}</button>`; }).join("") : '<span class="muted">วันนั้นร้านปิด</span>'}</div>
+      <div class="form-grid" style="margin-top:12px"><div class="field"><label for="qn-name">ชื่อลูกค้า</label><input type="text" id="qn-name" maxlength="120" value="${esc(N.name)}"></div><div class="field"><label for="qn-phone">เบอร์โทร</label><input type="tel" id="qn-phone" maxlength="20" value="${esc(N.phone)}"></div>
+        <div class="field"><label for="qn-ch">จองผ่าน</label><select id="qn-ch">${[["line", "LINE"], ["phone", "โทรศัพท์"], ["walk_in", "หน้าร้าน (Walk-in)"]].map(([k, l]) => `<option value="${k}"${N.channel === k ? " selected" : ""}>${l}</option>`).join("")}</select></div></div>
+      <p class="q-label">การชำระเงิน</p><div class="q-pts">${types}</div>
+      ${N.pt === "package" ? `<div class="field" style="max-width:320px;margin-top:10px"><label for="qn-pkg">ชื่อแพ็กเกจ</label><input type="text" id="qn-pkg" list="qn-pkgs" maxlength="60" value="${esc(N.pkg)}" placeholder="เช่น Happy Duo"><datalist id="qn-pkgs">${PKGS.map((p) => `<option value="${p}">`).join("")}</datalist></div>` : ""}
+      <p class="muted small" style="margin-top:8px">${N.pt === "venue" ? `ยอดที่ต้องเก็บหน้าร้าน ${baht(priceFor(N.people))}` : N.pt === "online" ? `บันทึกว่าจ่ายแล้ว ${baht(priceFor(N.people))}` : N.pt === "package" ? "ใช้สิทธิ์คูปอง ไม่เก็บเงินเพิ่ม ถ้าต้องเก็บส่วนต่าง ใส่ไว้ในหมายเหตุ" : "ไม่เก็บเงิน"}</p>
+      <div class="field" style="margin-top:10px"><label for="qn-note">หมายเหตุทีมงาน</label><input type="text" id="qn-note" maxlength="300" value="${esc(N.note)}"></div>
+      ${ME.role !== "staff" ? `<label class="check" style="margin-top:8px"><input type="checkbox" id="qn-over"${N.over ? " checked" : ""}> อนุญาตเกินความจุ</label>` : ""}
+      <p style="margin-top:14px"><button class="btn btn--primary" type="submit">บันทึกคิว</button></p></form>`;
+  }
+  async function viewQueue() {
+    const tab = R.qtab || "day", d = R.qday || today();
+    const strip0 = R.qstrip || today();
+    const calls = [rpc("staff_days", { p_from: strip0, p_days: 14 }, true), rpc("staff_waiting", {}, true)];
+    if (tab === "day") calls.push(rpc("staff_day", { p_day: d }, true));
+    if (tab === "search" && (R.qq || "").trim()) calls.push(rpc("staff_search", { p_q: R.qq }, true));
+    const [days, waiting, x] = await Promise.all(calls);
+    let formSlots = [];
+    if (R.qn) { try { formSlots = (await rpc("staff_day", { p_day: R.qn.day }, true)).slots; } catch (e) { formSlots = []; } }
+    const tabs = [["day", "ตารางคิว"], ["search", "ค้นหาลูกค้า"], ["waiting", `รอนัดวันใหม่${waiting.length ? ` <span class="count">${waiting.length}</span>` : ""}`]];
+    let body = "";
+    if (tab === "day") {
+      const day = x, all = day.slots.flatMap((s) => s.bookings).concat(day.off_schedule);
+      const live = all.filter((b) => b.status !== "no_show");
+      const stat = (n, l) => `<span class="q-stat"><b>${n}</b> ${l}</span>`;
+      const closedText = day.closed ? "ปิดร้านวันนี้" : (C.closed || []).includes(dow(d)) ? "ร้านหยุดวัน" + thDays[dow(d)] : "ไม่มีรอบวันนี้";
+      body = `<div class="q-days" role="group" aria-label="เลือกวัน"><button class="btn btn--small btn--ghost q-shift" type="button" data-qstrip="${addDays(strip0, -7)}" aria-label="7 วันก่อน">‹</button>${days.map((x) => `<button type="button" class="q-day${x.day === d ? " on" : ""}${x.closed ? " closed" : ""}" data-qday="${x.day}" aria-pressed="${x.day === d}"><span class="w">${x.day === today() ? "วันนี้" : esc(wd(x.day))}</span><span class="n">${Number(x.day.slice(8))}</span><span class="c">${x.closed ? "ปิด" : x.people ? x.people + " คน" : "–"}</span></button>`).join("")}<button class="btn btn--small btn--ghost q-shift" type="button" data-qstrip="${addDays(strip0, 7)}" aria-label="7 วันถัดไป">›</button></div>
+      <div class="q-dayhead"><button class="btn" type="button" data-qday="${addDays(d, -1)}" aria-label="วันก่อน">‹</button><h2>${esc(dLong(d, "th-TH"))}${day.holiday != null ? ` <span class="badge badge--warn">วันหยุดนักขัตฯ</span>` : ""}</h2><input type="date" id="qdate" value="${d}" aria-label="ไปวันที่"><button class="btn" type="button" data-qday="${addDays(d, 1)}" aria-label="วันถัดไป">›</button><button class="btn" type="button" data-qday="${today()}">วันนี้</button></div>
+      <div class="q-stats">${stat(live.reduce((a, b) => a + b.people, 0), "คนที่จอง")}${stat(all.filter((b) => b.status === "checked_in").reduce((a, b) => a + b.people, 0), "มาแล้ว")}${stat(all.filter((b) => b.status === "confirmed" && payType(b) === "venue").length, "คิวชำระหน้าร้าน")}${stat(all.filter((b) => payType(b) === "package").length, "ใช้คูปอง")}${stat(day.cancelled || 0, "ยกเลิก")}</div>
+      <p class="q-legend">${Object.values(PT).map(([l, k]) => `<span><i class="dot dot--${k}"></i>${l}</span>`).join("")}</p>
+      ${day.slots.length ? `<div class="q-slots">${day.slots.map((s) => `<section class="q-slot${s.blocked ? " is-blocked" : ""}"><div class="q-slot-head"><b>${s.hm}–${s.end}</b><span class="meter${s.used >= s.capacity ? " full" : ""}" aria-hidden="true"><i style="width:${s.capacity ? Math.min(100, Math.round((s.used * 100) / s.capacity)) : 0}%"></i></span><span class="muted">${s.used}/${s.capacity} คน</span>${s.blocked ? '<span class="badge badge--muted">ปิดรอบ</span>' : `<button class="btn btn--small" type="button" data-qnewat="${s.hm}">+ จองรอบนี้</button>`}</div>${s.bookings.length ? `<ul>${s.bookings.map((b) => qRow(b)).join("")}</ul>` : ""}</section>`).join("")}
+        ${day.off_schedule.length ? `<section class="q-slot"><div class="q-slot-head"><b>นอกตารางรอบ</b></div><ul>${day.off_schedule.map((b) => qRow(b)).join("")}</ul></section>` : ""}</div>`
+        : `<div class="card q-closed"><h3>${esc(closedText)}</h3><p class="muted">ไม่รับจองวันนี้</p></div>`}
+      <p class="muted small" style="margin-top:14px">วันนี้รับได้รอบละ ${day.slots[0] ? day.slots[0].capacity : (C.capacity)} คน · วันธรรมดา ${C.capacity} คน / เสาร์-อาทิตย์และวันหยุดนักขัตฯ ${C.capacity_weekend || C.capacity} คน${ME.role !== "staff" ? ` · <a href="#aday" data-go="aday">ปิดรอบหรือตั้งวันหยุด</a>` : ""}</p>`;
+    } else if (tab === "search") {
+      const list = x || [];
+      body = `<form class="filters" id="qs"><div class="field" style="flex:1 1 260px"><label for="qq">ชื่อ เบอร์ หรือรหัส PD-</label><input type="search" id="qq" value="${esc(R.qq || "")}" autofocus></div><button class="btn" type="submit">ค้นหา</button></form>
+        ${(R.qq || "").trim() ? (list.length ? `<ul class="q-list">${list.map((b) => qRow(b, { when: true })).join("")}</ul>` : '<p class="empty">ไม่พบลูกค้า</p>') : '<p class="muted">พิมพ์ชื่อ เบอร์ หรือรหัสการจอง</p>'}`;
+    } else {
+      let re = "";
+      if (R.qre) { let sl = []; try { sl = (await rpc("staff_day", { p_day: R.qreDay || today() }, true)).slots; } catch (e) { sl = []; }
+        re = `<div class="card" style="margin-bottom:12px"><h2>นัดวันใหม่ ${esc(R.qre)}</h2><div class="field" style="max-width:220px"><label for="qred">วันที่</label><input type="date" id="qred" value="${esc(R.qreDay || today())}"></div><div class="btn-row" style="margin-top:10px">${sl.map((s) => `<button class="btn btn--small" type="button" data-qregoto="${s.hm}"${s.blocked ? " disabled" : ""}>${s.hm} · ว่าง ${Math.max(0, s.capacity - s.used)}</button>`).join("") || '<span class="muted">วันนั้นร้านปิด</span>'}<button class="btn btn--small btn--ghost" type="button" data-qrex>ปิด</button></div></div>`; }
+      body = re + (waiting.length ? `<ul class="q-list">${waiting.map((b) => qRow(b, { when: true, waiting: true })).join("")}</ul>` : '<p class="empty">ไม่มีคิวที่รอนัดวันใหม่</p>');
+    }
+    return `<div class="adm q-page"><div class="q-wrap">${qHeader()}
+      ${R.qn ? qForm(formSlots) : ""}
+      <nav class="q-tabs" aria-label="มุมมอง">${tabs.map(([k, l]) => `<button type="button" data-qtab="${k}"${tab === k ? ' aria-current="page"' : ""}>${l}</button>`).join("")}</nav>
+      ${body}</div></div>`;
+  }
+  function bindQueue() {
+    const strip = $(".q-days"), on = $(".q-day.on"); if (strip && on) strip.scrollLeft = on.offsetLeft - strip.offsetLeft - strip.clientWidth / 2 + on.clientWidth / 2;
+    const keepForm = () => { const N = R.qn; if (!N || !$("#qn")) return; N.day = $("#qn-day").value || N.day; N.people = Math.max(1, Number($("#qn-people").value) || 1); N.name = $("#qn-name").value; N.phone = $("#qn-phone").value; N.channel = $("#qn-ch").value; const pt = $("input[name=qn-pt]:checked"); N.pt = pt ? pt.value : N.pt; const pk = $("#qn-pkg"); if (pk) N.pkg = pk.value; N.note = $("#qn-note").value; const ov = $("#qn-over"); N.over = !!(ov && ov.checked); };
+    const fresh = (hm) => ({ day: R.qday || today(), hm: hm || "", people: 2, name: "", phone: "", channel: "line", pt: "venue", pkg: "", note: "", over: false });
+    $$("[data-qtab]").forEach((b) => b.addEventListener("click", () => { keepForm(); R.qtab = b.dataset.qtab; R.qOpen = R.qCheckin = ""; R.flash = R.flashErr = ""; render(); }));
+    $$("[data-qday]").forEach((b) => b.addEventListener("click", () => { keepForm(); R.qday = b.dataset.qday; R.qOpen = R.qCheckin = ""; R.flash = R.flashErr = ""; render(); }));
+    $$("[data-qstrip]").forEach((b) => b.addEventListener("click", () => { R.qstrip = b.dataset.qstrip; render(); }));
+    const qd = $("#qdate"); if (qd) qd.addEventListener("change", () => { if (qd.value) { R.qday = qd.value; R.qstrip = qd.value < today() || qd.value > addDays(R.qstrip || today(), 13) ? qd.value : R.qstrip; render(); } });
+    const nw = $("[data-qnew]"); if (nw) nw.addEventListener("click", () => { R.qn = R.qn || fresh(); R.flash = R.flashErr = ""; render(); window.scrollTo(0, 0); });
+    $$("[data-qnewat]").forEach((b) => b.addEventListener("click", () => { R.qn = fresh(b.dataset.qnewat); R.flash = R.flashErr = ""; render(); window.scrollTo(0, 0); }));
+    const cl = $("[data-qclose]"); if (cl) cl.addEventListener("click", () => { R.qn = null; render(); });
+    const f = $("#qn");
+    if (f) {
+      $("#qn-day").addEventListener("change", () => { keepForm(); R.qn.hm = ""; render(); });
+      $("#qn-people").addEventListener("change", () => { keepForm(); render(); });
+      $$("input[name=qn-pt]").forEach((r) => r.addEventListener("change", () => { keepForm(); render(); }));
+      $$("[data-qnhm]").forEach((b) => b.addEventListener("click", () => { keepForm(); R.qn.hm = b.dataset.qnhm; render(); }));
+      f.addEventListener("submit", (e) => {
+        e.preventDefault(); keepForm(); const N = R.qn;
+        if (!N.hm) { R.flashErr = "เลือกเวลาก่อน"; render(); return; }
+        if (N.pt === "package" && !N.pkg.trim()) { R.flashErr = "ใส่ชื่อแพ็กเกจก่อน"; render(); return; }
+        act(async () => { const b = await rpc("staff_create_booking", { p: { day: N.day, hm: N.hm, people: N.people, name: N.name, phone: N.phone, channel: N.channel, pay_type: N.pt, package: N.pkg, note: N.note, over: N.over } }, true); R.qn = null; R.qtab = "day"; R.qday = b.day; return `บันทึกคิว ${b.name} ${b.people} คน ${dShort(b.day, "th-TH")} ${b.hm} แล้ว (${b.ref})`; });
+      });
+    }
+    $$("[data-qmore]").forEach((b) => b.addEventListener("click", () => { R.qOpen = R.qOpen === b.dataset.qmore ? "" : b.dataset.qmore; R.qCheckin = ""; render(); }));
+    $$("[data-qin]").forEach((b) => b.addEventListener("click", () => {
+      if (b.dataset.due === "1") { R.qCheckin = R.qCheckin === b.dataset.qin ? "" : b.dataset.qin; R.qOpen = ""; render(); return; }
+      act(async () => { await rpc("staff_checkin", { p_ref: b.dataset.qin, p_method: "" }, true); return "เช็คอินแล้ว"; });
+    }));
+    $$("[data-qpay]").forEach((b) => b.addEventListener("click", () => act(async () => { const ref = R.qCheckin; R.qCheckin = ""; await rpc("staff_checkin", { p_ref: ref, p_method: b.dataset.qpay }, true); return b.dataset.qpay ? "เช็คอินและรับเงิน" + METHOD[b.dataset.qpay] + "แล้ว" : "เช็คอินแล้ว (ยังไม่รับเงิน)"; })));
+    $$("[data-qst]").forEach((b) => b.addEventListener("click", () => act(async () => { const [st, ref] = b.dataset.qst.split("|"); R.qOpen = ""; await rpc("staff_set_status", { p_ref: ref, p_status: st }, true); return { waiting: "ย้ายไปรอนัดวันใหม่แล้ว", cancelled: "ยกเลิกคิวแล้ว", no_show: "บันทึกว่าไม่มาแล้ว", confirmed: "ย้อนเป็นจองแล้ว" }[st]; })));
+    const qs = $("#qs"); if (qs) qs.addEventListener("submit", (e) => { e.preventDefault(); R.qq = $("#qq").value; render(); });
+    $$("[data-qre]").forEach((b) => b.addEventListener("click", () => { R.qre = b.dataset.qre; R.qreDay = R.qreDay || today(); render(); window.scrollTo(0, 0); }));
+    const qred = $("#qred"); if (qred) qred.addEventListener("change", () => { R.qreDay = qred.value; render(); });
+    const qrex = $("[data-qrex]"); if (qrex) qrex.addEventListener("click", () => { R.qre = ""; render(); });
+    $$("[data-qregoto]").forEach((b) => b.addEventListener("click", () => act(async () => { const ref = R.qre, day = R.qreDay || today(); await rpc("staff_move", { p_ref: ref, p_day: day, p_hm: b.dataset.qregoto, p_over: false }, true); R.qre = ""; return `นัดวันใหม่ ${dShort(day, "th-TH")} ${b.dataset.qregoto} แล้ว`; })));
+    const csv = $("[data-qcsv]");
+    if (csv) csv.addEventListener("click", () => act(async () => {
+      const from = addDays(today(), -90), to = addDays(today(), Number(C.horizon_days) || 45);
+      const rows = await rpc("staff_export", { p_from: from, p_to: to }, true);
+      const STX = { confirmed: "จองแล้ว", checked_in: "มาแล้ว", cancelled: "ยกเลิก", no_show: "ไม่มา", waiting: "รอนัดวันใหม่" };
+      const head = ["รหัส", "วันที่", "เวลา", "ชื่อลูกค้า", "เบอร์โทร", "จำนวนคน", "สถานะ", "การชำระ", "แพ็กเกจ", "ยอด (บาท)", "รับเงินด้วย", "จองผ่าน", "หมายเหตุลูกค้า", "หมายเหตุทีมงาน", "จองเมื่อ"];
+      const cell = (v) => { const t = String(v == null ? "" : v); return /[",\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t; };
+      const lines = [head].concat(rows.map((b) => [b.ref, b.day, b.hm, b.name, b.phone ? "'" + b.phone : "", b.people, STX[b.status] || b.status, PT[payType(b)][0], b.package, b.total, METHOD[b.method] || b.method, CH[b.channel] || b.channel, b.note, b.staff_note, dt(b.created_at)]));
+      const blob = new Blob(["﻿" + lines.map((r) => r.map(cell).join(",")).join("\r\n")], { type: "text/csv;charset=utf-8" });
+      const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "peacefulday-bookings-" + today() + ".csv"; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+      return `ดาวน์โหลด ${rows.length} รายการแล้ว (${dShort(from, "th-TH")} – ${dShort(to, "th-TH")})`;
+    }));
+  }
 
   // ---------- render ----------
   let renderSeq = 0;
@@ -862,7 +993,8 @@
           if (!session) html = viewLogin();
           else if (!ME) { signOut(); R.flashErr = errText({ code: "not_staff" }) + " — ให้เจ้าของร้านเพิ่มอีเมลนี้ในหน้า “ทีมงาน” ก่อน"; html = viewLogin(); }
           else if (R.recovery && R.view !== "apassword") { R.view = "apassword"; html = viewPassword(); }
-          else html = await ({ admin: viewDashboard, aday: viewDay, abooking: viewAdminBooking, anew: viewNew, asearch: viewSearch, asettings: viewSettings, ateam: viewTeam, apassword: viewPassword }[R.view])();
+          else if (ME.role === "staff" && !["queue", "apassword"].includes(R.view)) { R.view = "queue"; history.replaceState(null, "", "#queue"); html = await viewQueue(); }
+          else html = await ({ queue: viewQueue, admin: viewDashboard, aday: viewDay, abooking: viewAdminBooking, anew: viewNew, asearch: viewSearch, asettings: viewSettings, ateam: viewTeam, apassword: viewPassword }[R.view])();
         }
       } else html = await ({ home: viewHome, book: viewBook, booking: viewBooking, my: viewMy }[R.view] || viewHome)();
     } catch (e) {
@@ -872,8 +1004,8 @@
     if (seq !== renderSeq) return; // a newer screen was requested meanwhile
     app.innerHTML = html;
     bindCommon();
-    const binders = { book: bindBook, booking: bindBooking, my: bindMy, aday: bindDay, abooking: bindAdminBooking, anew: bindNew, asearch: bindSearch, asettings: bindSettings, ateam: bindTeam, apassword: bindPassword };
-    if (isAdm && !$(".adm .shell")) bindLogin(); else if (binders[R.view]) binders[R.view]();
+    const binders = { queue: bindQueue, book: bindBook, booking: bindBooking, my: bindMy, aday: bindDay, abooking: bindAdminBooking, anew: bindNew, asearch: bindSearch, asettings: bindSettings, ateam: bindTeam, apassword: bindPassword };
+    if (isAdm && !$(".adm .shell") && !$(".q-page")) bindLogin(); else if (binders[R.view]) binders[R.view]();
     if (R.anchor) { const a = document.getElementById(R.anchor); R.anchor = ""; if (a) a.scrollIntoView(); }
   }
   function bindCommon() {
