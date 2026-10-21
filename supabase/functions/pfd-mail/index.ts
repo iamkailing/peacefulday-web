@@ -48,6 +48,7 @@ ${row("ชำระด้วย", esc(METHOD[b.method] || b.method || "-"))}
 ${b.paid_at ? row("ชำระเมื่อ", esc(thStamp(b.paid_at))) : ""}
 </table>
 <p><a href="${link}" style="display:inline-block;background:#2a3d0c;color:#fff;padding:12px 22px;border-radius:10px;text-decoration:none">ดูหรือเลื่อนการจอง</a></p>
+<p style="font-size:14px">ทุกคนในกลุ่มต้องลงชื่อรับทราบความเสี่ยงก่อนใช้บริการ <a href="${SITE}#waiver/${b.ref}">ลงชื่อล่วงหน้าในมือถือ</a> ถึงร้านจะได้เข้าใช้ทันที</p>
 <p style="font-size:14px">มาก่อนเวลา 10–15 นาที และเตรียมชุดที่เปียกได้ ถ้ามีโรคประจำตัว แจ้งทีมงานเมื่อมาถึง</p>
 <p style="font-size:14px">${esc(c.address_th || "")}${c.map_url ? ` · <a href="${esc(c.map_url)}">เปิดในแผนที่</a>` : ""}<br>สอบถาม โทร ${esc(c.phone || "")}</p>
 <p style="font-size:12px;color:#5d675f">อีเมลนี้เป็นหลักฐานการชำระเงิน ไม่ใช่ใบกำกับภาษี</p>
@@ -81,11 +82,12 @@ Deno.serve(async (req) => {
       await send({
         to: d.owners,
         subject: `สำรองข้อมูล Peaceful Day ${day} (สมาชิก ${d.customers.length} · การจอง ${d.bookings.length})`,
-        html: `<p>ไฟล์สำรองข้อมูลประจำสัปดาห์ของ Peaceful Day ประจำวันที่ ${day}</p><ul><li>สมาชิก ${d.customers.length} คน</li><li>การจองทั้งหมด ${d.bookings.length} รายการ</li><li>สลิป ${d.slips.length} ใบ (ยอดและเลขอ้างอิง ไม่รวมรูป)</li></ul><p>เปิดไฟล์ .csv ด้วย Google Sheets หรือ Excel ได้ เก็บอีเมลนี้ไว้ ถ้าวันไหนข้อมูลในระบบเสีย ใช้ไฟล์เหล่านี้กู้คืนได้</p>`,
+        html: `<p>ไฟล์สำรองข้อมูลประจำสัปดาห์ของ Peaceful Day ประจำวันที่ ${day}</p><ul><li>สมาชิก ${d.customers.length} คน</li><li>การจองทั้งหมด ${d.bookings.length} รายการ</li><li>สลิป ${d.slips.length} ใบ (ยอดและเลขอ้างอิง ไม่รวมรูป)</li><li>ลงชื่อรับทราบความเสี่ยง ${(d.waivers || []).length} รายการ (ไม่รวมรูปลายเซ็น)</li></ul><p>เปิดไฟล์ .csv ด้วย Google Sheets หรือ Excel ได้ เก็บอีเมลนี้ไว้ ถ้าวันไหนข้อมูลในระบบเสีย ใช้ไฟล์เหล่านี้กู้คืนได้</p>`,
         attachments: [
           { filename: `peacefulday-members-${day}.csv`, content: b64(toCsv(d.customers)) },
           { filename: `peacefulday-bookings-${day}.csv`, content: b64(toCsv(d.bookings)) },
           { filename: `peacefulday-slips-${day}.csv`, content: b64(toCsv(d.slips)) },
+          { filename: `peacefulday-waivers-${day}.csv`, content: b64(toCsv(d.waivers || [])) },
         ],
       });
       return out({ ok: true });

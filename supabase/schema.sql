@@ -154,6 +154,22 @@ insert into app_private (id) values (1) on conflict (id) do nothing;
 alter table app_private enable row level security;
 revoke all on app_private from anon, authenticated;
 
+-- signed risk acknowledgments (one per person; a group booking has several)
+create table if not exists waivers (
+  id bigserial primary key,
+  booking_id bigint references bookings(id) on delete set null,
+  name text not null,
+  services text not null default 'both' check (services in ('cold','sauna','both')),
+  signature text not null,           -- PNG data URL of the drawn signature
+  version text not null default 'v1',
+  lang text not null default 'th',
+  signed_at timestamptz not null default now()
+);
+create index if not exists waivers_booking on waivers (booking_id);
+create index if not exists waivers_signed on waivers (signed_at);
+alter table waivers enable row level security;
+revoke all on waivers from anon, authenticated;
+
 create table if not exists staff (
   user_id uuid primary key,
   email text not null,
@@ -287,7 +303,8 @@ end $$;
 
 -- what the team sees for a booking: the customer view plus the team's own fields
 create or replace function _staff_json(b bookings) returns jsonb language sql stable set search_path = public as $$
-  select _booking_json(b) || jsonb_build_object('staff_note', b.staff_note, 'package', b.package, 'paid_at', b.paid_at, 'cancelled_at', b.cancelled_at) $$;
+  select _booking_json(b) || jsonb_build_object('staff_note', b.staff_note, 'package', b.package, 'paid_at', b.paid_at, 'cancelled_at', b.cancelled_at,
+    'signed', (select count(*) from waivers w where w.booking_id = b.id)) $$;
 
 -- the signed-in customer (email confirmed with a one-time code); anonymous visitors cannot book
 create or replace function _customer_email() returns text language plpgsql stable as $$
@@ -498,6 +515,34 @@ begin
   perform _log(b.ref, 'ลูกค้าเลื่อนรอบจาก ' || old);
   return _booking_json(b);
 end $$;
+
+-- the risk acknowledgment, signed on the customer's phone before the visit or on the shop's tablet
+create or replace function sign_waiver(p jsonb) returns jsonb
+language plpgsql volatile security definer set search_path = public as $$
+declare v_name text := btrim(coalesce(p->>'name', '')); v_sig text := coalesce(p->>'signature', ''); v_svc text := coalesce(p->>'services', 'both');
+  b bookings; w waivers;
+begin
+  if length(v_name) < 2 or length(v_name) > 120 then raise exception 'name'; end if;
+  if not coalesce((p->>'agree')::boolean, false) then raise exception 'agree'; end if;
+  if v_sig !~ '^data:image/png;base64,' or length(v_sig) < 600 or length(v_sig) > 400000 then raise exception 'signature'; end if;
+  if v_svc not in ('cold','sauna','both') then v_svc := 'both'; end if;
+  if coalesce(p->>'ref', '') <> '' then
+    select * into b from bookings where ref = upper(btrim(p->>'ref'));
+    if found and (select count(*) from waivers where booking_id = b.id) >= b.people + 2 then raise exception 'too_many'; end if;
+  end if;
+  if (select count(*) from waivers where signed_at > now() - interval '10 minutes') > 60 then raise exception 'too_many'; end if;
+  insert into waivers (booking_id, name, services, signature, version, lang)
+  values (b.id, v_name, v_svc, v_sig, 'v1', case when p->>'lang' = 'en' then 'en' else 'th' end) returning * into w;
+  if b.id is not null then perform _log(b.ref, 'ลงชื่อรับทราบความเสี่ยง: ' || v_name); end if;
+  return jsonb_build_object('id', w.id, 'signed', (select count(*) from waivers where booking_id = b.id), 'people', b.people, 'ref', b.ref, 'name', b.name);
+end $$;
+
+-- what the waiver page shows about a booking (no personal details beyond the booking name)
+create or replace function waiver_booking(p_ref text) returns jsonb
+language sql stable security definer set search_path = public as $$
+  select jsonb_build_object('ref', b.ref, 'day', b.day, 'hm', b.hm, 'people', b.people, 'name', b.name,
+    'signed', (select count(*) from waivers w where w.booking_id = b.id))
+  from bookings b where b.ref = upper(btrim(p_ref)) and b.status in ('confirmed','checked_in') $$;
 
 -- ---------- staff (signed in with Supabase Auth) ----------
 drop function if exists staff_me();
@@ -901,6 +946,8 @@ begin
     'owners', coalesce((select jsonb_agg(email) from staff where role = 'owner'), '[]'::jsonb),
     'customers', coalesce((select jsonb_agg(to_jsonb(c) order by c.created_at) from customers c), '[]'::jsonb),
     'bookings', coalesce((select jsonb_agg(to_jsonb(b) - 'token' order by b.day, b.hm, b.created_at) from bookings b), '[]'::jsonb),
+    'waivers', coalesce((select jsonb_agg(jsonb_build_object('name', w.name, 'services', w.services, 'ref', b.ref, 'signed_at', w.signed_at, 'version', w.version) order by w.id)
+                         from waivers w left join bookings b on b.id = w.booking_id), '[]'::jsonb),
     'slips', coalesce((select jsonb_agg(jsonb_build_object('ref', b.ref, 'slip_ref', s.slip_ref, 'amount', s.amount, 'result', s.result, 'created_at', s.created_at) order by s.id)
                        from slips s join bookings b on b.id = s.booking_id), '[]'::jsonb));
 end $$;
@@ -940,6 +987,18 @@ begin
     order by c.created_at desc limit 2000) t), '[]'::jsonb);
 end $$;
 
+-- signatures for a booking, or everything signed on one day (walk-ins sign without a booking)
+create or replace function staff_waivers(p_ref text, p_day date) returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+begin
+  perform _need('staff');
+  return coalesce((select jsonb_agg(jsonb_build_object('id', w.id, 'name', w.name, 'services', w.services, 'signature', w.signature,
+      'signed_at', w.signed_at, 'ref', b.ref, 'lang', w.lang) order by w.signed_at)
+    from waivers w left join bookings b on b.id = w.booking_id
+    where (coalesce(p_ref, '') <> '' and b.ref = upper(btrim(p_ref)))
+       or (coalesce(p_ref, '') = '' and (w.signed_at at time zone 'Asia/Bangkok')::date = p_day)), '[]'::jsonb);
+end $$;
+
 -- ---------- who may call what ----------
 revoke execute on all functions in schema public from public, anon, authenticated;
 -- people booked per day, for the strip of days at the top of the queue page
@@ -977,7 +1036,7 @@ begin
 end $$;
 
 grant execute on function public_config(), availability(date, int, int), get_booking(text, uuid),
-  find_booking(text, text), cancel_booking(text, uuid), move_booking(text, uuid, date, text), submit_slip(text, uuid, text) to anon, authenticated;
+  find_booking(text, text), cancel_booking(text, uuid), move_booking(text, uuid, date, text), submit_slip(text, uuid, text), sign_waiver(jsonb), waiver_booking(text) to anon, authenticated;
 grant execute on function create_booking(jsonb), my_bookings(), my_profile(), save_profile(jsonb), verify_email() to authenticated;
 grant execute on function staff_me(text), staff_day(date), staff_search(text), staff_booking(text), staff_create_booking(jsonb),
   staff_checkin(text, text), staff_take_payment(text, text), staff_set_status(text, text), staff_move(text, date, text, boolean),
@@ -985,7 +1044,7 @@ grant execute on function staff_me(text), staff_day(date), staff_search(text), s
   staff_save_settings(jsonb), staff_overview(date), staff_days(date, int), staff_waiting(), staff_restore(text, boolean), staff_cancelled(), staff_slip(text), staff_slips(), staff_export(date, date), staff_team(), staff_invite(text, text, text), staff_remove(text) to authenticated;
 grant execute on function slip_check_get(text, uuid), slip_check_set(bigint, text, text, numeric, text),
   mail_receipt_get(text), mail_receipt_done(text), backup_data(text) to service_role;
-grant execute on function staff_customers(text) to authenticated;
+grant execute on function staff_customers(text), staff_waivers(text, date) to authenticated;
 -- helpers run inside the functions above (which run as the owner), so nobody needs to call them directly
 
 -- ---------- background jobs (Supabase extensions; skipped quietly where they are not available) ----------

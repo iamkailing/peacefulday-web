@@ -168,6 +168,8 @@
     login: ["เข้าสู่ระบบก่อนจอง", "Please sign in first."],
     package: ["ใส่ชื่อแพ็กเกจก่อน", "Enter the package name."],
     birth: ["วันเกิดไม่ถูกต้อง", "That date of birth doesn't look right."],
+    agree: ["กรุณาติ๊กว่าได้อ่านและเข้าใจแล้ว", "Please tick to confirm you have read and understood."],
+    signature: ["กรุณาลงลายมือชื่อในกรอบ", "Please sign in the box."],
     terms: ["กรุณายอมรับนโยบายความเป็นส่วนตัวก่อน", "Please accept the privacy policy first."],
     restore_full: ["กู้คืนไม่ได้ รอบนั้นเต็มแล้ว ใช้ “นัดวันใหม่” หรือให้ผู้จัดการย้ายรอบให้", "That session is full now."],
     slip: ["ไฟล์สลิปใช้ไม่ได้ ลองถ่ายหรือแคปหน้าจอใหม่เป็นรูปภาพ", "That slip file can't be used. Please attach a photo or screenshot."],
@@ -666,6 +668,7 @@
     ${!b.can_cancel && (b.pay === "paid" || b.pay === "review") ? `<p class="muted small">${esc(P("ชำระเงินแล้ว ถ้าต้องการยกเลิก กรุณาโทร ", "Already paid. To cancel, please call ") + C.phone)}</p>` : ""}
     ${!b.can_move && !b.can_cancel ? `<p class="note-box">${esc(P("เลยกำหนดเปลี่ยนแปลงออนไลน์แล้ว กรุณาโทร ", "It's past the online change deadline. Please call ") + C.phone)}</p>` : ""}
   </div>` : ""}
+  ${live && !owe ? `<div class="note-box waiver-cta"><p><b>${P("ลงชื่อรับทราบความเสี่ยงล่วงหน้า", "Sign the risk acknowledgment ahead")}</b> ${P("ทุกคนในกลุ่มต้องลงชื่อก่อนใช้บริการ ทำในมือถือตอนนี้ได้เลย ถึงร้านจะได้เข้าใช้ทันที", "Everyone in your group signs before their session. Do it on your phone now and go straight in when you arrive.")}</p><a class="btn btn--small btn--primary" href="#waiver/${esc(b.ref)}">${P("ลงชื่อ", "Sign")}</a></div>` : ""}
   <p class="mt-m"><a class="btn" href="#book" data-go="book">${P("จองรอบอื่น", "Book another session")}</a></p>
 </div></section>`);
   }
@@ -774,6 +777,7 @@
         ["วันเกิดและเพศ เฉพาะเมื่อคุณเลือกกรอก", "Date of birth and gender, only if you choose to give them."],
         ["ประวัติการจอง เช่น วัน เวลา จำนวนคน หมายเหตุที่คุณแจ้ง และการชำระเงิน", "Your bookings: day, time, number of people, any note you leave and your payments."],
         ["รูปสลิปการโอนที่คุณแนบ ใช้ตรวจยอดและยืนยันการจอง", "The transfer slips you attach, used to check payment and confirm your booking."],
+        ["ชื่อ ลายมือชื่อ บริการที่เลือก และเวลาที่ลงชื่อในแบบรับทราบความเสี่ยง เก็บเป็นหลักฐานการรับทราบ", "Your name, signature, chosen services and the time you signed the risk acknowledgment, kept as a record that you acknowledged the risks."],
         ["ข้อมูลทางเทคนิคที่ผู้ให้บริการเว็บบันทึกอัตโนมัติเพื่อความปลอดภัย เช่น ที่อยู่ IP และประเภทเบราว์เซอร์", "Technical details our web providers record automatically for security, such as IP address and browser type."]]],
       ["เราใช้ข้อมูลเพื่อ", "How we use it", [
         ["รับจอง ยืนยัน เลื่อน หรือยกเลิกการจอง และติดต่อคุณเรื่องการจอง", "To take, confirm, move or cancel your bookings and contact you about them."],
@@ -824,6 +828,89 @@
         ["ร้านอาจระงับบัญชีที่ใช้งานผิดปกติ เช่น จองแล้วไม่มาซ้ำหลายครั้งโดยไม่แจ้ง", "We may suspend accounts that are misused, for example repeated no-shows without notice."]]],
       ["การเปลี่ยนแปลงเงื่อนไข", "Changes to these terms", P("ถ้ามีการเปลี่ยนแปลง เราจะแก้ไขหน้านี้และวันที่ปรับปรุงด้านบน การจองที่ทำไว้แล้วใช้เงื่อนไข ณ วันที่จอง", "If these terms change, we will update this page and the date above. Existing bookings keep the terms from when they were made.")],
     ]);
+  }
+
+  // ---------- risk acknowledgment: read, tick, sign with a finger (one person at a time; a group signs one after another) ----------
+  const WAIVER = {
+    th: { title: "แบบรับทราบความเสี่ยง", intro: "ใช้สำหรับบริการอ่างน้ำเย็นและซาวน่าที่เลือกในครั้งนี้เท่านั้น กรุณาอ่าน สอบถาม และลงชื่อเมื่อเข้าใจแล้ว เอกสารนี้ไม่ใช่ใบรับรองแพทย์หรือการรับประกันความปลอดภัย",
+      sections: [
+        ["สิ่งที่ควรทราบก่อนตัดสินใจ", ["บริการนี้เป็นกิจกรรมเพื่อความเป็นอยู่ที่ดีทั่วไป ไม่ใช่การวินิจฉัยหรือรักษาโรค ผลที่ได้รับแตกต่างกันในแต่ละบุคคล ไม่จำเป็นต้องอยู่จนครบเวลา สลับร้อนเย็น หรือทำตามผู้อื่น คุณสามารถไม่เริ่มหรือหยุดได้ทุกเมื่อ"]],
+        ["ความเสี่ยงสำคัญ", ["อ่างน้ำเย็น: อาจเกิดอาการหอบหรือสูดหายใจอย่างฉับพลัน หายใจเร็ว ใจเต้นและความดันเปลี่ยน เวียนศีรษะ ชา สูญเสียการควบคุมร่างกาย หมดสติ จมน้ำ หรืออุณหภูมิร่างกายต่ำผิดปกติ ในบางกรณีอาจเกิดหัวใจเต้นผิดจังหวะหรือเหตุร้ายแรงถึงชีวิต",
+          "ซาวน่า: อาจเกิดขาดน้ำ ความดันเปลี่ยน หน้ามืด เป็นลม ผิวหนังไหม้ หรือเจ็บป่วยจากความร้อน รวมถึงภาวะฮีตสโตรก ซึ่งอาจรุนแรงถึงชีวิต",
+          "การสลับร้อนเย็นเพิ่มภาระต่อระบบหัวใจและหลอดเลือด การเคยทนได้หรือรู้สึกสบายไม่ได้ยืนยันว่าปลอดภัยในครั้งนี้",
+          "พื้นเปียก ขอบอ่าง และอุปกรณ์อาจทำให้ลื่นล้ม บาดเจ็บ หรือเกิดอุบัติเหตุได้ โรคประจำตัว ยา และสภาพร่างกายในวันนั้นอาจเพิ่มความเสี่ยง"]],
+        ["ข้อตกลงด้านความปลอดภัย", ["แจ้งพนักงานเมื่อสุขภาพเปลี่ยน และปฏิบัติตามคำแนะนำด้านความปลอดภัยที่แจ้งก่อนเริ่ม หากไม่แน่ใจให้ชะลอและปรึกษาผู้ประกอบวิชาชีพที่เหมาะสม",
+          "ไม่ใช้บริการเมื่อมึนเมา อยู่ภายใต้อิทธิพลของสารที่ทำให้การตัดสินใจหรือการทรงตัวผิดปกติ มีไข้ ไม่สบาย หรือขาดน้ำ",
+          "ไม่ใช้เพียงลำพัง ไม่กระโดดลงอ่าง ไม่จุ่มศีรษะ และไม่กลั้นหายใจหรือฝึกหายใจเร็วแรงในน้ำ ก่อนลงน้ำทันที หรือใกล้น้ำ เข้าออกช้า ๆ และพักก่อนเปลี่ยนกิจกรรม",
+          "หยุดทันทีและเรียกพนักงานเมื่อเจ็บหน้าอก หายใจลำบาก หน้ามืด ใจสั่น สับสน อ่อนแรง หรือมีอาการผิดปกติ อย่าฝืน อย่าลุกหรือออกจากอ่างโดยลำพังหากรู้สึกจะเป็นลม"]]],
+      agree: "ข้าพเจ้าได้อ่านและเข้าใจความเสี่ยง มีโอกาสถามคำถาม และเลือกเข้าร่วมโดยสมัครใจ รับทราบว่าพนักงานอาจให้พักหรือยุติการใช้บริการเพื่อความปลอดภัย การลงชื่อไม่ใช่การสละสิทธิเรียกร้องตามกฎหมาย และไม่ยกเว้นความรับผิดของผู้ให้บริการที่กฎหมายไม่อนุญาตให้ยกเว้น" },
+    en: { title: "Risk acknowledgment", intro: "Applies only to the cold-water immersion and sauna services selected for this visit. Please read, ask questions and sign only when you understand. This is not medical clearance or a guarantee of safety.",
+      sections: [
+        ["Before you decide", ["These are general wellbeing activities, not diagnosis or treatment. Individual responses vary. You do not have to complete any duration, alternate hot and cold, or match another person. You may decline to start or stop at any time."]],
+        ["Important risks", ["Cold-water immersion may cause an involuntary gasp, rapid breathing, changes in heart rate and blood pressure, dizziness, numbness, loss of physical control, unconsciousness, drowning or hypothermia. In some cases, abnormal heart rhythms or other life-threatening events can occur.",
+          "Sauna may cause dehydration, blood-pressure changes, lightheadedness, fainting, burns or heat illness, including potentially life-threatening heatstroke.",
+          "Alternating heat and cold adds cardiovascular stress. Previous tolerance or feeling comfortable does not establish that a session is safe.",
+          "Wet floors, bath edges and equipment can cause slips, injuries and accidents. Health conditions, medicines and how you feel that day can increase risk."]],
+        ["Safety commitments", ["Tell staff about changes in your health, and follow the safety instructions given before starting. If unsure, pause and seek advice from an appropriate healthcare professional.",
+          "Do not participate while intoxicated, affected by substances that impair judgment or balance, feverish, unwell or dehydrated.",
+          "Do not use the facilities alone, jump into the bath, submerge your head, hold your breath or practise rapid forceful breathing in, immediately before entering, or near water. Enter and exit slowly, and rest before changing activities.",
+          "Stop and alert staff immediately for chest pain, difficulty breathing, dizziness, palpitations, confusion, weakness or other unusual symptoms. Do not push through symptoms or stand up or exit alone if you feel faint."]]],
+      agree: "I have read and understood the risks, had an opportunity to ask questions, and choose to participate voluntarily. I understand that staff may pause or end participation for safety. Signing does not waive my legal rights or exclude any provider liability that cannot lawfully be excluded." },
+  };
+  async function viewWaiver() {
+    const W = WAIVER[lang === "en" ? "en" : "th"], F = R.wf || (R.wf = { name: "", services: "both", agree: false });
+    let bk = null;
+    if (R.wref) { try { bk = await rpc("waiver_booking", { p_ref: R.wref }); } catch (e) { bk = null; } }
+    if (bk && !F.name && !bk.signed && !R.wdone) F.name = bk.name;
+    if (R.wdone) {
+      const d = R.wdone, more = d.people && d.signed < d.people;
+      return pubLayout(`<section class="section"><div class="wrap waiver"><div class="alert alert--ok" role="status">${ICON.ok}<p>${P(`ลงชื่อเรียบร้อย ขอบคุณค่ะ`, "Signed. Thank you.")}${d.people ? P(` (ลงชื่อแล้ว ${d.signed} จาก ${d.people} คนในการจอง ${esc(d.ref)})`, ` (${d.signed} of ${d.people} people signed for ${esc(d.ref)})`) : ""}</p></div>
+        <p class="lede">${more ? P("ส่งเครื่องให้คนถัดไปในกลุ่มลงชื่อได้เลย", "Pass the phone to the next person in your group.") : P("แล้วพบกันที่สวน", "See you in the garden.")}</p>
+        <div class="btn-row"><button class="btn btn--primary" type="button" data-wnext>${P("ลงชื่อคนถัดไป", "Next person signs")}</button><a class="btn" href="#home" data-go="home">${P("กลับหน้าแรก", "Back to home")}</a></div></div></section>`);
+    }
+    const svc = (v, th, en) => `<label class="radio"><input type="radio" name="w-svc" value="${v}"${F.services === v ? " checked" : ""}><span>${P(th, en)}</span></label>`;
+    return pubLayout(`<header class="page-head"><div class="wrap waiver"><h1>${esc(W.title)}</h1><p class="lede">${esc(W.intro)}</p>
+      ${bk ? `<p class="small">${P("การจอง", "Booking")} <b>${esc(bk.ref)}</b> · ${esc(dShort(bk.day))} ${esc(bk.hm)} · ${P(`ลงชื่อแล้ว ${bk.signed} จาก ${bk.people} คน`, `${bk.signed} of ${bk.people} signed`)}</p>` : ""}</div></header>
+<section class="section" style="padding-top:8px"><div class="wrap waiver">${flashHTML()}
+  <div class="prose">${W.sections.map(([h, items]) => `<h2>${esc(h)}</h2><ul>${items.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>`).join("")}</div>
+  <form class="panel waiver-form" id="wf" novalidate>
+    <div class="field"><label for="w-name">${P("ชื่อ-นามสกุลผู้ใช้บริการ", "Participant's full name")}</label><input id="w-name" type="text" maxlength="120" autocomplete="name" value="${esc(F.name)}"></div>
+    <fieldset class="field"><legend>${P("บริการที่เลือก", "Selected services")}</legend><div class="radio-row">${svc("cold", "อ่างน้ำเย็น", "Cold-water immersion")}${svc("sauna", "ซาวน่า", "Sauna")}${svc("both", "ใช้ทั้งสองบริการ", "Both")}</div></fieldset>
+    <label class="check"><input type="checkbox" id="w-agree"${F.agree ? " checked" : ""}><span>${esc(W.agree)}</span></label>
+    <div class="field"><label>${P("ลงชื่อด้วยนิ้วหรือเมาส์ในกรอบ", "Sign with your finger or mouse in the box")}</label>
+      <div class="sigpad"><canvas id="sig" aria-label="${P("ช่องลงลายมือชื่อ", "Signature box")}"></canvas><span class="sig-hint" aria-hidden="true">${P("ลงชื่อที่นี่", "Sign here")}</span></div>
+      <span class="err" id="sig-err" role="alert"></span>
+      <button class="btn btn--small btn--ghost" type="button" data-sigclear>${P("ล้างลายเซ็น", "Clear")}</button></div>
+    <p class="muted small">${P('ลายเซ็น ชื่อ และเวลาที่ลงชื่อจะถูกเก็บเป็นหลักฐาน ตาม<a href="#privacy" target="_blank" rel="noopener">นโยบายความเป็นส่วนตัว</a>', 'Your signature, name and the time are kept as a record, as described in our <a href="#privacy" target="_blank" rel="noopener">privacy policy</a>.')}</p>
+    <button class="btn btn--primary btn--block" type="submit" id="w-go">${P("ลงชื่อ", "Sign")}</button>
+  </form>
+</div></section>`);
+  }
+  function bindWaiver() {
+    const nx = $("[data-wnext]"); if (nx) nx.addEventListener("click", () => { R.wdone = null; R.wf = { name: "", services: "both", agree: false }; render(); window.scrollTo(0, 0); });
+    const cv = $("#sig"); if (!cv) return;
+    const ratio = Math.max(1, window.devicePixelRatio || 1), box = cv.parentElement;
+    cv.width = box.clientWidth * ratio; cv.height = box.clientHeight * ratio;
+    const cx = cv.getContext("2d"); cx.scale(ratio, ratio); cx.lineWidth = 2.4; cx.lineCap = "round"; cx.lineJoin = "round"; cx.strokeStyle = "#111";
+    let drawing = false, inked = 0, last = null;
+    const pt = (e) => { const r = cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+    cv.addEventListener("pointerdown", (e) => { e.preventDefault(); cv.setPointerCapture(e.pointerId); drawing = true; last = pt(e); box.classList.add("has-ink"); box.classList.remove("has-error"); $("#sig-err").textContent = ""; });
+    cv.addEventListener("pointermove", (e) => { if (!drawing) return; const p = pt(e); cx.beginPath(); cx.moveTo(last[0], last[1]); cx.lineTo(p[0], p[1]); cx.stroke(); inked += Math.hypot(p[0] - last[0], p[1] - last[1]); last = p; });
+    const up = () => { drawing = false; }; cv.addEventListener("pointerup", up); cv.addEventListener("pointercancel", up);
+    $("[data-sigclear]").addEventListener("click", () => { cx.clearRect(0, 0, cv.width, cv.height); inked = 0; box.classList.remove("has-ink"); });
+    const keep = () => { R.wf.name = $("#w-name").value; const r = $("input[name=w-svc]:checked"); R.wf.services = r ? r.value : "both"; R.wf.agree = $("#w-agree").checked; };
+    $("#wf").addEventListener("submit", async (e) => {
+      e.preventDefault(); keep(); const F = R.wf;
+      if (F.name.trim().length < 2) { R.flashErr = P("กรุณากรอกชื่อ-นามสกุล", "Please enter your full name."); render(); return; }
+      if (!F.agree) { R.flashErr = P("กรุณาติ๊กว่าได้อ่านและเข้าใจแล้ว", "Please tick to confirm you have read and understood."); render(); return; }
+      if (inked < 40) { const pad = $(".sigpad"); pad.classList.add("has-error"); const m = $("#sig-err"); m.textContent = P("กรุณาลงลายมือชื่อในกรอบ", "Please sign in the box."); pad.scrollIntoView({ block: "center" }); return; }
+      const go2 = $("#w-go"); go2.disabled = true;
+      try {
+        const res = await rpc("sign_waiver", { p: { ref: R.wref || "", name: F.name, services: F.services, agree: true, signature: cv.toDataURL("image/png"), lang } });
+        R.wdone = res; R.flashErr = ""; R.wf = { name: "", services: "both", agree: false };
+      } catch (err) { R.flashErr = errText(err); }
+      render(); window.scrollTo(0, 0);
+    });
   }
 
   // ---------- find my booking ----------
@@ -1168,8 +1255,9 @@
     const closedNames = (C.closed || []).map((d) => thDays[d]).join(" ");
     const times = C.times || [];
     return `<header class="q-head"><div><h1>${LOGO}<span>Peaceful Day · จองคิว</span></h1><p class="muted small">${closedNames ? "ร้านหยุดทุกวัน" + esc(closedNames) + " · " : ""}รอบ ${esc(times[0] || "")}–${esc(times[times.length - 1] || "")} · อยู่ได้ ${C.duration / 60} ชม.</p></div>
-      <div class="btn-row"><button class="btn" type="button" data-qcsv>ส่งออก CSV</button><button class="btn btn--primary" type="button" data-qnew>+ จองคิวใหม่</button>${ME.role !== "staff" ? `<a class="btn btn--ghost" href="#admin" data-go="admin">หลังบ้าน</a>` : `<button class="btn btn--ghost" type="button" data-signout>ออกจากระบบ</button>`}</div></header>
-      ${R.flash ? `<div class="alert alert--ok" role="status">${esc(R.flash)}</div>` : ""}${R.flashErr ? `<div class="alert alert--bad" role="alert">${esc(R.flashErr)}</div>` : ""}`;
+      <div class="btn-row"><button class="btn" type="button" data-qqr>QR ลงชื่อ</button><button class="btn" type="button" data-qcsv>ส่งออก CSV</button><button class="btn btn--primary" type="button" data-qnew>+ จองคิวใหม่</button>${ME.role !== "staff" ? `<a class="btn btn--ghost" href="#admin" data-go="admin">หลังบ้าน</a>` : `<button class="btn btn--ghost" type="button" data-signout>ออกจากระบบ</button>`}</div></header>
+      ${R.flash ? `<div class="alert alert--ok" role="status">${esc(R.flash)}</div>` : ""}${R.flashErr ? `<div class="alert alert--bad" role="alert">${esc(R.flashErr)}</div>` : ""}
+      ${R.qQr ? `<div class="card q-qr"><div>${qrSVG("https://peacefulday.co/#waiver")}</div><div><h2>ให้ลูกค้าสแกนเพื่อลงชื่อรับทราบความเสี่ยง</h2><p class="muted">สำหรับ walk-in หรือคนในกลุ่มที่ยังไม่ได้ลงชื่อ สแกนแล้วเปิดหน้าลงชื่อในมือถือ หรือเปิด <b>peacefulday.co/#waiver</b> บนแท็บเล็ตของร้านให้ลูกค้าเซ็นได้เลย ลายเซ็นจากการจองที่มีรหัส PD- จะขึ้นที่ปุ่ม “ลงชื่อ” ของคิวนั้นเอง</p><p><button class="btn btn--small" type="button" onclick="window.print()">พิมพ์ QR</button></p></div></div>` : ""}`;
   }
   function qRow(b, opts) {
     const t = payType(b), o = opts || {};
@@ -1178,9 +1266,10 @@
     return `<li class="q-row${b.status === "checked_in" ? " is-in" : ""}${b.status === "no_show" ? " is-off" : ""}">
       <span class="dot dot--${PT_SHOW[t][1]}" title="${PT_SHOW[t][0]}"></span>
       <div class="q-who"><b>${esc(b.name)}</b> <span class="muted">${b.people} คน${b.phone ? " · " + esc(fmtPhone(b.phone)) : ""}${o.when ? " · " + esc(dShort(b.day, "th-TH")) + " " + esc(b.hm) : ""}</span>${note ? `<span class="q-note">${esc(note)}</span>` : ""}</div>
-      <span class="q-tags">${b.status === "checked_in" ? '<span class="badge badge--ok">มาแล้ว</span>' : b.status === "no_show" ? '<span class="badge badge--bad">ไม่มา</span>' : b.status === "cancelled" ? '<span class="badge badge--bad">ยกเลิก</span>' : b.status === "waiting" ? '<span class="badge badge--warn">รอนัดวันใหม่</span>' : ""}${t === "venue" && b.status !== "cancelled" ? `<span class="badge badge--warn">เก็บ ${baht(b.total)}</span>` : ""}${t === "await" && b.status !== "cancelled" ? `<span class="badge badge--muted">รอโอน ถึง ${esc(new Date(b.hold_until).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok" }))}</span>` : ""}${t === "review" && b.status !== "cancelled" ? `<button class="badge badge--warn badge-btn" type="button" data-qslip="${esc(b.ref)}">ดูสลิป ${baht(b.total)}</button>` : ""}</span>
+      <span class="q-tags">${b.status === "checked_in" ? '<span class="badge badge--ok">มาแล้ว</span>' : b.status === "no_show" ? '<span class="badge badge--bad">ไม่มา</span>' : b.status === "cancelled" ? '<span class="badge badge--bad">ยกเลิก</span>' : b.status === "waiting" ? '<span class="badge badge--warn">รอนัดวันใหม่</span>' : ""}${t === "venue" && b.status !== "cancelled" ? `<span class="badge badge--warn">เก็บ ${baht(b.total)}</span>` : ""}${t === "await" && b.status !== "cancelled" ? `<span class="badge badge--muted">รอโอน ถึง ${esc(new Date(b.hold_until).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok" }))}</span>` : ""}${b.status !== "cancelled" && b.status !== "waiting" ? `<button class="badge ${b.signed >= b.people ? "badge--ok" : "badge--muted"} badge-btn" type="button" data-qsig="${esc(b.ref)}" title="ดูลายเซ็นรับทราบความเสี่ยง">ลงชื่อ ${b.signed || 0}/${b.people}</button>` : ""}${t === "review" && b.status !== "cancelled" ? `<button class="badge badge--warn badge-btn" type="button" data-qslip="${esc(b.ref)}">ดูสลิป ${baht(b.total)}</button>` : ""}</span>
       <span class="q-act">${b.status === "cancelled" ? `<span class="muted small">${b.cancelled_at ? "ยกเลิก " + esc(dt(b.cancelled_at)) : ""}${b.pay === "expired" ? " · หมดเวลาชำระ" : ""}${(b.pay === "paid" || b.pay === "review") && b.total > 0 && b.method !== "package" ? " · <b>ลูกค้าจ่ายแล้ว ต้องคืนเงิน?</b>" : ""}</span><button class="btn btn--small" type="button" data-qrestore="${esc(b.ref)}" data-confirm="กดอีกครั้งเพื่อกู้คืน">กู้คืนคิว</button>` : ""}${o.waiting ? `<button class="btn btn--small btn--primary" type="button" data-qre="${esc(b.ref)}">นัดวันใหม่</button>` : b.status === "confirmed" && !o.when ? `<button class="btn btn--small btn--primary" type="button" data-qin="${esc(b.ref)}" data-due="${owes(b) ? 1 : 0}">เช็คอิน</button>` : ""}${b.status !== "cancelled" ? `<button class="btn btn--small btn--ghost" type="button" data-qmore="${esc(b.ref)}" aria-expanded="${open}">⋯</button>` : ""}</span>
       ${R.qCheckin === b.ref ? `<div class="q-panel">รับเงิน ${baht(b.total)} ด้วย ${Object.entries(METHOD).map(([k, l]) => `<button class="btn btn--small btn--primary" type="button" data-qpay="${k}">${l}</button>`).join("")}<button class="btn btn--small" type="button" data-qpay="">ยังไม่รับเงิน</button></div>` : ""}
+      ${R.qSig === b.ref ? `<div class="q-panel q-sigs">${(R.qSigData || []).length ? R.qSigData.map((w) => `<figure><img src="${w.signature}" alt="ลายเซ็นของ ${esc(w.name)}"><figcaption><b>${esc(w.name)}</b> · ${{ cold: "อ่างน้ำเย็น", sauna: "ซาวน่า", both: "ทั้งสองบริการ" }[w.services] || ""} · ${esc(dt(w.signed_at))}</figcaption></figure>`).join("") : '<span class="muted">ยังไม่มีใครลงชื่อ</span>'}</div>` : ""}
       ${R.qSlip === b.ref ? `<div class="q-panel q-slip">${R.qSlipData ? slipCard(b, R.qSlipData) : '<span class="muted">กำลังโหลดสลิป…</span>'}</div>` : ""}
       ${open ? `<div class="q-panel">${b.status === "confirmed" ? `<button class="btn btn--small" type="button" data-qst="waiting|${esc(b.ref)}">ย้ายไปรอนัดวันใหม่</button><button class="btn btn--small" type="button" data-qst="no_show|${esc(b.ref)}">ไม่มา</button>` : ""}${b.status === "checked_in" || b.status === "no_show" ? `<button class="btn btn--small" type="button" data-qst="confirmed|${esc(b.ref)}">ย้อนเป็นจองแล้ว</button>` : ""}${["confirmed", "waiting", "no_show"].includes(b.status) ? `<button class="btn btn--small btn--danger" type="button" data-qst="cancelled|${esc(b.ref)}" data-confirm="กดอีกครั้งเพื่อยกเลิก">ยกเลิกคิว</button>` : ""}<span class="muted small">${esc(b.ref)} · ${CH[b.channel] || esc(b.channel)}</span>${ME.role !== "staff" ? ` <a class="small" href="#abooking" data-aref="${esc(b.ref)}">รายละเอียด</a>` : ""}</div>` : ""}
     </li>`;
@@ -1208,7 +1297,9 @@
     if (tab === "search" && (R.qq || "").trim()) calls.push(rpc("staff_search", { p_q: R.qq }, true));
     if (tab === "cancelled") calls.push(rpc("staff_cancelled", {}, true));
     if (R.qSlip) calls.push(rpc("staff_slip", { p_ref: R.qSlip }, true).catch(() => null));
+    const sigP = R.qSig ? rpc("staff_waivers", { p_ref: R.qSig === "*" ? "" : R.qSig, p_day: R.qday || today() }, true).catch(() => []) : null;
     const res = await Promise.all(calls);
+    R.qSigData = sigP ? await sigP : null;
     const [days, waiting, slips] = res, x = tab === "day" || tab === "cancelled" || (tab === "search" && (R.qq || "").trim()) ? res[3] : null;
     R.qSlipData = R.qSlip ? res[res.length - 1] : null;
     let formSlots = [];
@@ -1223,6 +1314,8 @@
       body = `<div class="q-days" role="group" aria-label="เลือกวัน"><button class="btn btn--small btn--ghost q-shift" type="button" data-qstrip="${addDays(strip0, -7)}" aria-label="7 วันก่อน">‹</button>${days.map((x) => `<button type="button" class="q-day${x.day === d ? " on" : ""}${x.closed ? " closed" : ""}" data-qday="${x.day}" aria-pressed="${x.day === d}"><span class="w">${x.day === today() ? "วันนี้" : esc(wd(x.day))}</span><span class="n">${Number(x.day.slice(8))}</span><span class="c">${x.closed ? "ปิด" : x.people ? x.people + " คน" : "–"}</span></button>`).join("")}<button class="btn btn--small btn--ghost q-shift" type="button" data-qstrip="${addDays(strip0, 7)}" aria-label="7 วันถัดไป">›</button></div>
       <div class="q-dayhead"><button class="btn" type="button" data-qday="${addDays(d, -1)}" aria-label="วันก่อน">‹</button><h2>${esc(dLong(d, "th-TH"))}${day.holiday != null ? ` <span class="badge badge--warn">วันหยุดนักขัตฯ</span>` : ""}</h2><input type="date" id="qdate" value="${d}" aria-label="ไปวันที่"><button class="btn" type="button" data-qday="${addDays(d, 1)}" aria-label="วันถัดไป">›</button><button class="btn" type="button" data-qday="${today()}">วันนี้</button></div>
       <div class="q-stats">${stat(live.reduce((a, b) => a + b.people, 0), "คนที่จอง")}${stat(all.filter((b) => b.status === "checked_in").reduce((a, b) => a + b.people, 0), "มาแล้ว")}${stat(all.filter((b) => b.status === "confirmed" && owes(b)).length, "ยังไม่ชำระ")}${stat(all.filter((b) => payType(b) === "package").length, "ใช้คูปอง")}${day.cancelled ? `<button class="q-stat q-stat-btn" type="button" data-qtab="cancelled"><b>${day.cancelled}</b> ยกเลิก</button>` : stat(0, "ยกเลิก")}</div>
+      <p class="small"><button class="btn btn--small btn--ghost" type="button" data-qsig="*">${R.qSig === "*" ? "ปิดลายเซ็น" : "ดูลายเซ็นทั้งหมดที่ลงวันนี้ (รวม walk-in)"}</button></p>
+      ${R.qSig === "*" ? `<div class="card q-sigs">${(R.qSigData || []).length ? R.qSigData.map((w) => `<figure><img src="${w.signature}" alt="ลายเซ็นของ ${esc(w.name)}"><figcaption><b>${esc(w.name)}</b>${w.ref ? " · " + esc(w.ref) : " · ไม่มีรหัสจอง"} · ${{ cold: "อ่างน้ำเย็น", sauna: "ซาวน่า", both: "ทั้งสองบริการ" }[w.services] || ""} · ${esc(dt(w.signed_at))}</figcaption></figure>`).join("") : '<span class="muted">ยังไม่มีใครลงชื่อในวันนี้</span>'}</div>` : ""}
       <p class="q-legend">${Object.values(PT_SHOW).map(([l, k]) => `<span><i class="dot dot--${k}"></i>${l}</span>`).join("")}</p>
       ${day.slots.length ? `<div class="q-slots">${day.slots.map((s) => `<section class="q-slot${s.blocked ? " is-blocked" : ""}"><div class="q-slot-head"><b>${s.hm}–${s.end}</b><span class="meter${s.used >= s.capacity ? " full" : ""}" aria-hidden="true"><i style="width:${s.capacity ? Math.min(100, Math.round((s.used * 100) / s.capacity)) : 0}%"></i></span><span class="muted">${s.used}/${s.capacity} คน</span>${s.blocked ? '<span class="badge badge--muted">ปิดรอบ</span>' : `<button class="btn btn--small" type="button" data-qnewat="${s.hm}">+ จองรอบนี้</button>`}</div>${s.bookings.length ? `<ul>${s.bookings.map((b) => qRow(b)).join("")}</ul>` : ""}</section>`).join("")}
         ${day.off_schedule.length ? `<section class="q-slot"><div class="q-slot-head"><b>นอกตารางรอบ</b></div><ul>${day.off_schedule.map((b) => qRow(b)).join("")}</ul></section>` : ""}</div>`
@@ -1273,6 +1366,8 @@
       });
     }
     bindSlipButtons();
+    $$("[data-qsig]").forEach((b) => b.addEventListener("click", () => { R.qSig = R.qSig === b.dataset.qsig ? "" : b.dataset.qsig; R.qOpen = R.qCheckin = R.qSlip = ""; render(); }));
+    const qq = $("[data-qqr]"); if (qq) qq.addEventListener("click", () => { R.qQr = !R.qQr; render(); });
     $$("[data-qslip]").forEach((b) => b.addEventListener("click", () => { R.qSlip = R.qSlip === b.dataset.qslip ? "" : b.dataset.qslip; R.qOpen = R.qCheckin = ""; render(); }));
     $$("[data-qmore]").forEach((b) => b.addEventListener("click", () => { R.qOpen = R.qOpen === b.dataset.qmore ? "" : b.dataset.qmore; R.qCheckin = ""; render(); }));
     $$("[data-qin]").forEach((b) => b.addEventListener("click", () => {
@@ -1321,7 +1416,7 @@
           else if (ME.role === "staff" && !["queue", "apassword"].includes(R.view)) { R.view = "queue"; history.replaceState(null, "", "#queue"); html = await viewQueue(); }
           else html = await ({ queue: viewQueue, admin: viewDashboard, aday: viewDay, abooking: viewAdminBooking, anew: viewNew, asearch: viewSearch, asettings: viewSettings, ateam: viewTeam, acustomers: viewCustomers, apassword: viewPassword }[R.view])();
         }
-      } else html = await ({ home: viewHome, book: viewBook, booking: viewBooking, my: viewMy, profile: viewProfile, privacy: viewPrivacy, terms: viewTerms }[R.view] || viewHome)();
+      } else html = await ({ home: viewHome, book: viewBook, booking: viewBooking, my: viewMy, profile: viewProfile, privacy: viewPrivacy, terms: viewTerms, waiver: viewWaiver }[R.view] || viewHome)();
     } catch (e) {
       if (e.code === "not_staff" || /JWT/i.test(e.message)) { signOut(); ME = null; R.flashErr = errText(e); html = viewLogin(); }
       else html = `<div class="pub"><section class="err-page"><div class="wrap"><h1>${P("โหลดข้อมูลไม่สำเร็จ", "Couldn't load")}</h1><p class="lede">${esc(errText(e))}</p><button class="btn btn--primary" type="button" onclick="location.reload()">${P("ลองใหม่", "Try again")}</button></div></section></div>`;
@@ -1329,7 +1424,7 @@
     if (seq !== renderSeq) return; // a newer screen was requested meanwhile
     app.innerHTML = html;
     bindCommon();
-    const binders = { profile: bindProfile, queue: bindQueue, book: bindBook, booking: bindBooking, my: bindMy, aday: bindDay, abooking: bindAdminBooking, anew: bindNew, asearch: bindSearch, asettings: bindSettings, ateam: bindTeam, acustomers: bindCustomers, apassword: bindPassword };
+    const binders = { waiver: bindWaiver, profile: bindProfile, queue: bindQueue, book: bindBook, booking: bindBooking, my: bindMy, aday: bindDay, abooking: bindAdminBooking, anew: bindNew, asearch: bindSearch, asettings: bindSettings, ateam: bindTeam, acustomers: bindCustomers, apassword: bindPassword };
     if (isAdm && !$(".adm .shell") && !$(".q-page")) bindLogin(); else if (binders[R.view]) binders[R.view]();
     if (R.anchor) { const a = document.getElementById(R.anchor); R.anchor = ""; if (a) a.scrollIntoView(); }
   }
@@ -1352,6 +1447,7 @@
     const h = decodeURIComponent((location.hash || "").slice(1));
     const [v, a, b] = h.split("/");
     if (v === "booking" && a && b) Object.assign(R, { view: "booking", ref: a, token: b, justBooked: false });
+    else if (v === "waiver") Object.assign(R, { view: "waiver", wref: (a || "").toUpperCase(), wdone: null });
     else if (["home", "book", "my", "profile", "privacy", "terms"].concat(ADMIN.filter((x) => x !== "abooking")).includes(v)) R.view = v;
     else R.view = "home";
   }
@@ -1362,7 +1458,7 @@
     if (!LIVE.includes(R.view) || !session || document.hidden || R.busy) return;
     const a = document.activeElement;
     if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return;
-    if (R.qn || R.qre || R.qCheckin || R.qOpen || R.checkinFor) return;
+    if (R.qn || R.qre || R.qCheckin || R.qOpen || R.checkinFor || R.qSig || R.qQr) return;
     const y = window.scrollY; R.flash = ""; render().then(() => window.scrollTo(0, y));
   }
   setInterval(quietRefresh, 30000);
