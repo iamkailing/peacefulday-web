@@ -78,6 +78,7 @@
     if (j.access_token) { keepCust(j); return true; } // email confirmation is off
     return false; // a confirmation email was sent
   }
+  async function custVerifyLink(email) { await authCall("otp?redirect_to=" + custBack(), { email, create_user: false }); }
   async function custReset(email) { await authCall("recover?redirect_to=" + custBack(), { email }); }
   async function custSetPassword(password) {
     const r = await fetch(CFG.url + "/auth/v1/user", { method: "PUT", headers: Object.assign({ Authorization: "Bearer " + (await custToken()) }, H), body: JSON.stringify({ password }) });
@@ -137,7 +138,8 @@
         try { got.email = JSON.parse(atob(got.access_token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"))).email || ""; } catch (e) { /* unreadable token */ }
         cust = got; store.set(CUST_KEY, got);
         window.__pfdCustRecovery = q.get("type") === "recovery";
-        history.replaceState(null, "", location.pathname + (window.__pfdCustRecovery ? "#my" : "#book"));
+        window.__pfdVerify = q.get("type") === "magiclink"; // the optional "confirm your email" link
+        history.replaceState(null, "", location.pathname + (window.__pfdCustRecovery ? "#my" : window.__pfdVerify ? "#profile" : "#book"));
       } else {
         session = got; store.set(SESSION_KEY, session);
         window.__pfdRecovery = q.get("type") === "recovery";
@@ -264,8 +266,8 @@
     return P(`เปิด ${first}–${end} น. หยุดทุก${closed.map((d) => "วัน" + thDays[d]).join(" และ")}`, `Open ${first}–${end}, closed on ${closed.map((d) => enDays[d] + "s").join(", ")}`);
   }
   const policyLine = () => P(
-    `ยกเลิกหรือเลื่อนรอบได้เองก่อนเวลาเริ่ม ${C.cancel_hours} ชั่วโมง (เลื่อนได้ ${C.max_moves} ครั้ง) ผ่านลิงก์ในหน้าการจองของคุณ หลังจากนั้นกรุณาโทร ${C.phone}`,
-    `You can cancel or move your booking yourself up to ${C.cancel_hours} hours before it starts (up to ${C.max_moves} reschedules per booking) from your booking page. After that, please call ${C.phone}.`);
+    `ชำระเงินภายใน ${C.hold_min || 15} นาทีหลังจอง เลื่อนรอบได้เองก่อนเวลาเริ่ม ${C.cancel_hours} ชั่วโมง (${C.max_moves} ครั้ง) ถ้าชำระแล้วต้องการยกเลิก หรือเลยกำหนดเลื่อน กรุณาโทร ${C.phone}`,
+    `Pay within ${C.hold_min || 15} minutes of booking. Move your booking yourself up to ${C.cancel_hours} hours before it starts (${C.max_moves} time${C.max_moves > 1 ? "s" : ""}). To cancel after paying, or after that deadline, please call ${C.phone}.`);
 
   // ---------- public layout ----------
   function pubLayout(main, opts) {
@@ -683,6 +685,10 @@
   function toProfile(after) { R.afterProfile = after; R.view = "profile"; try { history.replaceState(null, "", "#profile"); } catch (e) { /* ignore */ } return viewProfile(); }
   async function viewProfile() {
     if (cust && R.profile === undefined) await ensureProfile();
+    if (cust && window.__pfdVerify) {
+      window.__pfdVerify = false;
+      try { const pr = await rpc("verify_email", {}, "cust"); if (pr) { R.profile = pr; if (pr.email_verified) R.flash = P("ยืนยันอีเมลแล้ว ถ้าลืมรหัสผ่าน เราจะส่งลิงก์ตั้งรหัสใหม่ไปที่อีเมลนี้", "Email confirmed. If you forget your password, we'll send the reset link here."); } } catch (e) { /* not important enough to block the page */ }
+    }
     const pr = R.profile || {}, first = !R.profile, F = R.pf || (R.pf = { phone: (pr.phone || BK.phone || "").replace(/^0/, ""), first_name: pr.first_name || "", last_name: pr.last_name || "", birth_date: pr.birth_date || "", gender: pr.gender || "", marketing_consent: !!pr.marketing_consent });
     const fe = R.pfErr || {};
     const field = (k, label, input, opt) => `<div class="field${fe[k] ? " has-error" : ""}"><label for="pf-${k}">${label}${opt ? ` <span class="muted small">${P("(ไม่บังคับ)", "(optional)")}</span>` : ""}</label>${input}${fe[k] ? `<span class="err">${esc(fe[k])}</span>` : ""}</div>`;
@@ -692,14 +698,15 @@
   ${!cust ? `<div class="panel" style="max-width:520px">${loginPanel(P("เข้าสู่ระบบก่อน", "Please sign in first."))}</div>` : `
   <form class="panel profile-form" id="pf" novalidate>
     <h2>${P("ข้อมูลบัญชี", "Account")}</h2>
-    <p class="muted small">${P("อีเมล", "Email")}: <b>${esc(cust.email)}</b></p>
+    <p class="muted small">${P("อีเมล", "Email")}: <b>${esc(cust.email)}</b>${pr.email_verified ? ` <span class="badge badge--ok">${P("ยืนยันแล้ว", "Confirmed")}</span>` : ""}</p>
+    ${!first && !pr.email_verified ? `<div class="verify-box">${R.verifySent ? `<p class="small">${ICON.ok} ${P(`ส่งลิงก์ไปที่ ${esc(cust.email)} แล้ว เปิดอีเมลแล้วกดลิงก์ภายใน 1 ชั่วโมง (ดูในจดหมายขยะด้วย)`, `We've sent a link to ${esc(cust.email)}. Open it within an hour (check spam too).`)}</p>` : `<p class="small">${P("ยืนยันอีเมลไว้ (ไม่บังคับ) เพื่อให้แน่ใจว่าได้รับลิงก์ตอนลืมรหัสผ่าน", "Confirm your email (optional) so you're sure to get the link if you forget your password.")}</p>${R.verifyOpen ? `<div id="captcha" class="captcha"></div>` : ""}<button class="btn btn--small" type="button" data-verify>${R.verifyOpen ? P("ส่งลิงก์ยืนยัน", "Send the link") : P("ยืนยันอีเมล", "Confirm email")}</button>`}</div>` : ""}
     ${field("phone", P("เบอร์มือถือ", "Mobile number"), `<div class="tel-row"><span class="tel-cc" aria-hidden="true">🇹🇭 +66</span><input id="pf-phone" type="tel" inputmode="tel" autocomplete="tel-national" maxlength="12" placeholder="8x xxx xxxx" value="${esc(F.phone)}" aria-label="${P("เบอร์มือถือ ไม่ต้องใส่ 0 ข้างหน้า", "Mobile number")}"></div>`)}
     <h2>${P("ข้อมูลส่วนตัว", "Personal details")}</h2>
     <div class="row-2">${field("first_name", P("ชื่อ", "First name"), `<input id="pf-first_name" type="text" autocomplete="given-name" maxlength="60" value="${esc(F.first_name)}">`)}${field("last_name", P("นามสกุล", "Last name"), `<input id="pf-last_name" type="text" autocomplete="family-name" maxlength="60" value="${esc(F.last_name)}">`, true)}</div>
     ${field("birth_date", P("วันเกิด", "Date of birth"), `<input id="pf-birth_date" type="date" max="${today()}" value="${esc(F.birth_date)}">`, true)}
     <fieldset class="field"><legend>${P("เพศ", "Gender")} <span class="muted small">${P("(ไม่บังคับ)", "(optional)")}</span></legend><div class="radio-row">${g("male", "ชาย", "Male")}${g("female", "หญิง", "Female")}${g("unspecified", "ไม่ระบุ", "Prefer not to say")}</div></fieldset>
     <label class="check"><input type="checkbox" id="pf-mkt"${F.marketing_consent ? " checked" : ""}><span>${P("ยินยอมให้ Peaceful Day ส่งข่าวสาร โปรโมชัน และข้อเสนอพิเศษทางอีเมลหรือ SMS (เลิกรับได้ทุกเมื่อ)", "I agree to receive news, promotions and offers from Peaceful Day by email or SMS (you can opt out any time).")}</span></label>
-    ${first ? `<p class="muted small">${P('การกดบันทึกถือว่าคุณยอมรับ<a href="#privacy" data-go="privacy">นโยบายความเป็นส่วนตัว</a>และ<a href="#terms" data-go="terms">เงื่อนไขการจอง</a>ของ Peaceful Day', 'By saving, you agree to the Peaceful Day <a href="#privacy" data-go="privacy">privacy policy</a> and <a href="#terms" data-go="terms">booking terms</a>.')}</p>` : ""}
+    ${first ? `<p class="muted small">${P('การกดบันทึกถือว่าคุณยอมรับ<a href="#privacy" target="_blank" rel="noopener">นโยบายความเป็นส่วนตัว</a>และ<a href="#terms" target="_blank" rel="noopener">เงื่อนไขการจอง</a>ของ Peaceful Day (เปิดในแท็บใหม่)', 'By saving, you agree to the Peaceful Day <a href="#privacy" target="_blank" rel="noopener">privacy policy</a> and <a href="#terms" target="_blank" rel="noopener">booking terms</a> (open in a new tab).')}</p>` : ""}
     <div class="btn-row"><button class="btn btn--primary" type="submit" id="pf-save">${first ? P("บันทึกและไปจองรอบ", "Save and book") : P("บันทึกข้อมูล", "Save")}</button>${!first ? `<a class="btn btn--ghost" href="#my" data-go="my">${P("กลับ", "Back")}</a>` : ""}</div>
   </form>`}
 </div></section>`);
@@ -707,6 +714,18 @@
   function bindProfile() {
     if (!cust) { bindLoginPanel(); return; }
     const f = $("#pf"); if (!f) return;
+    const vb = $("[data-verify]");
+    if (vb) {
+      if (R.verifyOpen) mountCaptcha();
+      vb.addEventListener("click", async () => {
+        keep();
+        if (!R.verifyOpen) { R.verifyOpen = true; render(); return; }
+        if (needCaptcha()) { R.flashErr = P("รอให้ช่องตรวจสอบด้านบนขึ้นเครื่องหมายถูกก่อน", "Wait for the check above to finish."); render(); return; }
+        try { await custVerifyLink(cust.email); R.verifySent = true; R.verifyOpen = false; R.flashErr = ""; }
+        catch (e) { R.flashErr = authErr(e.message); }
+        render();
+      });
+    }
     const keep = () => { const F = R.pf; F.phone = $("#pf-phone").value; F.first_name = $("#pf-first_name").value; F.last_name = $("#pf-last_name").value; F.birth_date = $("#pf-birth_date").value; const g = $("input[name=pf-gender]:checked"); F.gender = g ? g.value : ""; F.marketing_consent = $("#pf-mkt").checked; };
     const ready = () => { const d = $("#pf-phone").value.replace(/\D/g, ""); $("#pf-save").disabled = !($("#pf-first_name").value.trim() && d.length >= 8); };
     f.addEventListener("input", ready); ready();

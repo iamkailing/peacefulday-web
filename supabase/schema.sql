@@ -121,6 +121,8 @@ create table if not exists customers (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+-- sign-ups are not email-confirmed; a member can confirm their email later (optional) by opening a sign-in link we email them
+alter table customers add column if not exists email_verified_at timestamptz;
 alter table customers enable row level security;
 revoke all on customers from anon, authenticated;
 
@@ -378,7 +380,19 @@ begin
   select * into c from customers where user_id = auth.uid();
   if not found then return null; end if;
   return jsonb_build_object('email', em, 'phone', c.phone, 'first_name', c.first_name, 'last_name', c.last_name,
-    'birth_date', c.birth_date, 'gender', c.gender, 'marketing_consent', c.marketing_consent);
+    'birth_date', c.birth_date, 'gender', c.gender, 'marketing_consent', c.marketing_consent,
+    'email_verified', c.email_verified_at is not null and lower(c.email) = em);
+end $$;
+
+-- called after the member opens the emailed sign-in link: that login proves they can read mail at this address
+create or replace function verify_email() returns jsonb
+language plpgsql volatile security definer set search_path = public as $$
+declare em text := _customer_email();
+begin
+  if exists (select 1 from jsonb_array_elements(coalesce(auth.jwt()->'amr', '[]'::jsonb)) a where a->>'method' in ('otp','magiclink')) then
+    update customers set email_verified_at = now(), email = em where user_id = auth.uid();
+  end if;
+  return my_profile();
 end $$;
 
 create or replace function save_profile(p jsonb) returns jsonb
@@ -810,7 +824,7 @@ end $$;
 
 grant execute on function public_config(), availability(date, int, int), get_booking(text, uuid),
   find_booking(text, text), cancel_booking(text, uuid), move_booking(text, uuid, date, text), submit_slip(text, uuid, text) to anon, authenticated;
-grant execute on function create_booking(jsonb), my_bookings(), my_profile(), save_profile(jsonb) to authenticated;
+grant execute on function create_booking(jsonb), my_bookings(), my_profile(), save_profile(jsonb), verify_email() to authenticated;
 grant execute on function staff_me(text), staff_day(date), staff_search(text), staff_booking(text), staff_create_booking(jsonb),
   staff_checkin(text, text), staff_take_payment(text, text), staff_set_status(text, text), staff_move(text, date, text, boolean),
   staff_note(text, text), staff_set_slot(date, text, boolean, int), staff_set_closed_day(date, boolean, text), staff_set_holiday(date, boolean, text), staff_closed_days(),

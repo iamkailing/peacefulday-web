@@ -1070,3 +1070,8 @@ body[data-mode=adm]{background:#f6f5ee}
 .q-page .dot--await { background: #c9c3a8; } .q-page .dot--review { background: #d2452f; }
 .badge-btn { cursor: pointer; font: inherit; font-size: .8rem; }
 .badge-btn:focus-visible { outline: 2px solid #2f7fc1; outline-offset: 2px; }
+
+/* optional email confirmation on the member page */
+.pub .verify-box { border: 1px dashed var(--line-2); border-radius: 14px; padding: 12px 14px; margin: -4px 0 18px; }
+.pub .verify-box p { margin: 0 0 8px; }
+.pub .verify-box .captcha { margin-bottom: 8px; }
