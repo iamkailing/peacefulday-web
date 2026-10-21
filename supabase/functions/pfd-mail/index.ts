@@ -1,4 +1,5 @@
 // Peaceful Day — emails (Supabase Edge Function "pfd-mail"), sent through Resend from hello@peacefulday.co.
+// Anyone can call it, and that is harmless: a receipt only goes to the booking's own email, once; the backup needs a database-only token.
 //  { ref }    : payment confirmation for a paid web booking. Called by the database when a booking becomes paid;
 //               it only sends once per booking, so calling it again does nothing.
 //  { backup } : the weekly backup of members and bookings (CSV files) to the shop owner. Called by pg_cron with a
@@ -48,7 +49,7 @@ ${row("ชำระด้วย", esc(METHOD[b.method] || b.method || "-"))}
 ${b.paid_at ? row("ชำระเมื่อ", esc(thStamp(b.paid_at))) : ""}
 </table>
 <p><a href="${link}" style="display:inline-block;background:#2a3d0c;color:#fff;padding:12px 22px;border-radius:10px;text-decoration:none">ดูหรือเลื่อนการจอง</a></p>
-<p style="font-size:14px">ทุกคนในกลุ่มต้องลงชื่อรับทราบความเสี่ยงก่อนใช้บริการ <a href="${SITE}#waiver/${b.ref}/${b.token}">ลงชื่อล่วงหน้าในมือถือ</a> ถึงร้านจะได้เข้าใช้ทันที</p>
+<p style="font-size:14px">ทุกคนในกลุ่มต้องลงทะเบียนและลงชื่อรับทราบความเสี่ยงก่อนใช้บริการ <a href="${SITE}#waiver/${b.ref}/${b.wtoken}">ลงทะเบียนและลงชื่อล่วงหน้า</a> (ส่งลิงก์นี้ให้เพื่อนในกลุ่มได้) ถึงร้านจะได้เข้าใช้ทันที</p>
 <p style="font-size:14px">มาก่อนเวลา 10–15 นาที และเตรียมชุดที่เปียกได้ ถ้ามีโรคประจำตัว แจ้งทีมงานเมื่อมาถึง</p>
 <p style="font-size:14px">${esc(c.address_th || "")}${c.map_url ? ` · <a href="${esc(c.map_url)}">เปิดในแผนที่</a>` : ""}<br>สอบถาม โทร ${esc(c.phone || "")}</p>
 <p style="font-size:12px;color:#5d675f">อีเมลนี้เป็นหลักฐานการชำระเงิน ไม่ใช่ใบกำกับภาษี</p>
@@ -74,10 +75,12 @@ Deno.serve(async (req) => {
   try {
     const p = await req.json().catch(() => ({}));
     if (p.ref) {
+      // taking the booking marks the email as sent (so two calls never both send); on failure it is handed back for the retry job
       const b = await rpc("mail_receipt_get", { p_ref: String(p.ref).slice(0, 20) });
       if (!b) return out({ ok: true, sent: false });
-      await send({ to: [b.email], subject: `ยืนยันการจอง ${b.ref} · Peaceful Day`, html: receiptHtml(b) });
-      await rpc("mail_receipt_done", { p_ref: b.ref });
+      try { await send({ to: [b.email], subject: `ยืนยันการจอง ${b.ref} · Peaceful Day`, html: receiptHtml(b) }); }
+      catch (e) { await rpc("mail_receipt_done", { p_ref: b.ref, p_ok: false }); throw e; }
+      await rpc("mail_receipt_done", { p_ref: b.ref, p_ok: true });
       return out({ ok: true, sent: true });
     }
     if (p.backup) {

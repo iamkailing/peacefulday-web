@@ -1,6 +1,7 @@
 // Peaceful Day — automatic transfer-slip check (Supabase Edge Function "pfd-slip").
-// The website calls this right after a customer attaches a slip (submit_slip). It sends the slip to EasySlip,
-// checks it against the booking and the shop's account, and records the result through two database functions.
+// The database calls this for every new slip (trigger on the slips table). It sends the newest unchecked slip to EasySlip,
+// checks it against the booking and the shop's account, and records the result once through slip_check_set.
+// A slip is paid automatically only when the receiver's name AND account clearly match; anything unclear goes to the team.
 // Secrets (Edge Functions → Secrets): SLIP_KEY = EasySlip API key. SLIP_URL is optional (another provider with the same shape).
 // "Verify JWT" must be off for this function: the website uses a publishable key, and the booking's own token is checked instead.
 
@@ -18,12 +19,12 @@ async function rpc(fn: string, args: Record<string, unknown>) {
   return t ? JSON.parse(t) : null;
 }
 
-type Slip = { err?: string; wait?: boolean; ref?: string; amount?: number; date?: string; name?: string; acct?: string };
+type Slip = { err?: string; wait?: boolean; ref?: string; amount?: number; date?: string; names?: string[]; accts?: string[]; matched?: boolean };
 // EasySlip API v2 (document.easyslip.com/en/v2/verify/bank/base64): POST { base64 } → data.rawSlip
 async function verify(b64: string): Promise<Slip> {
   const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 9000);
   try {
-    const r = await fetch(SLIP_URL, { method: "POST", headers: { Authorization: `Bearer ${SLIP_KEY}`, "Content-Type": "application/json" }, body: JSON.stringify({ base64: b64 }), signal: ctl.signal });
+    const r = await fetch(SLIP_URL, { method: "POST", headers: { Authorization: `Bearer ${SLIP_KEY}`, "Content-Type": "application/json" }, body: JSON.stringify({ base64: b64, matchAccount: true }), signal: ctl.signal });
     const j = await r.json().catch(() => ({}));
     if (!r.ok || !j || j.success === false || !j.data) {
       const e = (j && j.error) || {}, code = String(e.code || j.message || "HTTP " + r.status);
@@ -33,9 +34,11 @@ async function verify(b64: string): Promise<Slip> {
     }
     const d = j.data, raw = d.rawSlip || d, rc = raw.receiver || {}, acc = rc.account || {};
     const amt = raw.amount && typeof raw.amount === "object" ? raw.amount.amount : (raw.amount ?? d.amountInSlip);
-    const names = [acc.name && acc.name.th, acc.name && acc.name.en, d.matchedAccount && d.matchedAccount.nameTh, d.matchedAccount && d.matchedAccount.nameEn].filter(Boolean);
-    const accts = [acc.bank && acc.bank.account, acc.proxy && acc.proxy.account, d.matchedAccount && d.matchedAccount.bankNumber].filter((x) => typeof x === "string");
-    return { ref: String(raw.transRef || raw.reference || ""), amount: Number(amt), date: String(raw.date || ""), name: names.join(" | "), acct: accts.join(" | ") };
+    // only what the slip itself says about the receiver (not the accounts EasySlip compared it with)
+    const names = [acc.name && acc.name.th, acc.name && acc.name.en, acc.displayName, rc.displayName, rc.name].filter((x) => typeof x === "string" && x);
+    const accts = [acc.bank && acc.bank.account, acc.proxy && acc.proxy.account, acc.account, acc.value].filter((x) => typeof x === "string" && x);
+    const matched = !!(d.matchedAccount && typeof d.matchedAccount === "object" && Object.keys(d.matchedAccount).length);
+    return { ref: String(raw.transRef || raw.reference || ""), amount: Number(amt), date: String(raw.date || ""), names, accts, matched };
   } catch (_e) {
     return { err: "ระบบตรวจสลิปไม่ตอบ", wait: true };
   } finally { clearTimeout(timer); }
@@ -45,22 +48,35 @@ const normName = (s: string) => String(s || "").toLowerCase()
   .replace(/(นางสาว|นาง|นาย|น\.ส\.|บจก\.?|บริษัท|จำกัด|mr\.?|mrs\.?|ms\.?|miss|co\.?,?\s*ltd\.?|company|limited)/g, "")
   .replace(/[^a-z0-9ก-๙]/g, "");
 
-// "" = the slip pays for this booking; otherwise the reason in plain Thai
-function problem(v: Slip, b: Record<string, any>): string {
-  if (!v.ref) return "ไม่พบเลขอ้างอิงในสลิป";
-  if (!isFinite(v.amount!)) return "อ่านยอดเงินในสลิปไม่ได้";
-  if (v.amount! < Number(b.total)) return `ยอดในสลิป ${v.amount} บาท น้อยกว่ายอดที่ต้องชำระ ${b.total} บาท`;
-  const want = normName(b.holder);
-  const nameOk = want.length >= 3 && (v.name || "").split("|").some((n) => { const g = normName(n); return g.length >= 3 && (g.includes(want) || want.includes(g)); });
-  const mine = [b.account, b.promptpay].map((x: string) => String(x || "").replace(/\D/g, "")).filter((x: string) => x.length >= 4);
-  const shown = (v.acct || "").split("|").map((x) => x.replace(/\D/g, "")).filter((x) => x.length >= 4);
-  const acctOk = shown.some((x) => mine.some((m: string) => m.includes(x)));
-  if (!nameOk && !acctOk) return "บัญชีผู้รับในสลิปไม่ตรงกับบัญชีร้าน";
+// the receiver name on the slip is the shop's account name (slips often cut long names short, so a long enough start counts)
+function nameMatches(slipNames: string[], holder: string): boolean {
+  const wants = String(holder || "").split(/[|/,]/).map(normName).filter((x) => x.length >= 3);
+  return slipNames.some((n) => { const g = normName(n); return g.length >= 3 && wants.some((w) => g === w || (g.length >= 6 && w.startsWith(g)) || (w.length >= 6 && g.startsWith(w))); });
+}
+// a masked account number ("xxx-x-x5899-x") agrees with the shop's number digit by digit, in the same positions
+function accountMatches(shown: string, full: string): boolean {
+  const s = String(shown || "").toLowerCase().replace(/[*•]/g, "x").replace(/[^0-9x]/g, ""), f = String(full || "").replace(/\D/g, "");
+  if (!f || s.length !== f.length || s.replace(/x/g, "").length < 4) return false;
+  for (let i = 0; i < s.length; i++) if (s[i] !== "x" && s[i] !== f[i]) return false;
+  return true;
+}
+
+// ok = pays this booking; bad = clearly wrong (the customer is told why and can send another); manual = the team decides
+function judge(v: Slip, b: Record<string, any>): { result: "ok" | "bad" | "manual"; note: string } {
+  if (!v.ref) return { result: "bad", note: "ไม่พบเลขอ้างอิงในสลิป ใช้รูปสลิปจากแอปธนาคาร" };
+  if (!isFinite(v.amount!)) return { result: "manual", note: "อ่านยอดเงินในสลิปไม่ได้" };
+  if (v.amount! < Number(b.total)) return { result: "bad", note: `ยอดในสลิป ${v.amount} บาท น้อยกว่ายอดที่ต้องชำระ ${b.total} บาท` };
   const t = Date.parse(v.date || "");
-  if (!isFinite(t)) return "อ่านเวลาโอนในสลิปไม่ได้";
-  if (t < Date.parse(b.created_at) - 30 * 60e3) return "สลิปนี้โอนก่อนการจอง กรุณาใช้สลิปของการโอนครั้งนี้";
-  if (t - Date.now() > 10 * 60e3) return "เวลาในสลิปไม่ถูกต้อง";
-  return "";
+  if (!isFinite(t)) return { result: "manual", note: "อ่านเวลาโอนในสลิปไม่ได้" };
+  if (t < Date.parse(b.created_at) - 30 * 60e3) return { result: "bad", note: "สลิปนี้โอนก่อนการจอง กรุณาใช้สลิปของการโอนครั้งนี้" };
+  if (t - Date.now() > 10 * 60e3) return { result: "bad", note: "เวลาในสลิปไม่ถูกต้อง" };
+  const mine = [b.account, b.promptpay].map((x: string) => String(x || "").replace(/\D/g, "")).filter((x: string) => x.length >= 6);
+  const nameOk = nameMatches(v.names || [], b.holder);
+  const acctOk = (v.accts || []).some((a) => mine.some((m: string) => accountMatches(a, m)));
+  const acctShown = (v.accts || []).some((a) => a.replace(/\D/g, "").length >= 4);
+  if (nameOk && (acctOk || v.matched)) return { result: "ok", note: v.amount! > Number(b.total) ? `โอนเกิน ${v.amount! - Number(b.total)} บาท` : "" };
+  if (!nameOk && acctShown && !acctOk && !v.matched && (v.names || []).length) return { result: "bad", note: "บัญชีผู้รับในสลิปไม่ตรงกับบัญชีร้าน" };
+  return { result: "manual", note: "ตรวจบัญชีผู้รับอัตโนมัติไม่ได้ชัดเจน ทีมงานจะตรวจให้" + ((v.names || []).length ? ` (ผู้รับในสลิป: ${(v.names || []).join(" / ").slice(0, 80)})` : "") };
 }
 
 Deno.serve(async (req) => {
@@ -76,9 +92,7 @@ Deno.serve(async (req) => {
     const m = /^data:image\/[a-z]+;base64,(.+)$/.exec(String(b.data || ""));
     if (!m) return out({ status: "manual" });
     const v = await verify(String(b.data)); // EasySlip takes the data URI as is (the prefix helps it detect the image type)
-    let result = "ok", note = "";
-    if (v.err) { result = v.wait ? "manual" : "bad"; note = v.err; }
-    else { note = problem(v, b); if (note) result = "bad"; else if (v.amount! > Number(b.total)) note = `โอนเกิน ${v.amount! - Number(b.total)} บาท`; }
+    const { result, note } = v.err ? { result: v.wait ? "manual" : "bad", note: v.err } : judge(v, b);
     const res = await rpc("slip_check_set", { p_slip_id: b.slip_id, p_result: result, p_ref: v.ref || null, p_amount: isFinite(v.amount!) ? v.amount : null, p_note: note });
     return out(res);
   } catch (_e) {
