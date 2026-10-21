@@ -19,7 +19,7 @@ async function rpc(fn: string, args: Record<string, unknown>) {
 }
 
 type Slip = { err?: string; wait?: boolean; ref?: string; amount?: number; date?: string; name?: string; acct?: string };
-// EasySlip API v2: POST { base64 } → data.rawSlip (same reading as the Fortunie top-up check)
+// EasySlip API v2 (document.easyslip.com/en/v2/verify/bank/base64): POST { base64 } → data.rawSlip
 async function verify(b64: string): Promise<Slip> {
   const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 9000);
   try {
@@ -75,7 +75,7 @@ Deno.serve(async (req) => {
     if (!SLIP_KEY || !b.auto) return out({ status: "manual" });
     const m = /^data:image\/[a-z]+;base64,(.+)$/.exec(String(b.data || ""));
     if (!m) return out({ status: "manual" });
-    const v = await verify(m[1]);
+    const v = await verify(String(b.data)); // EasySlip takes the data URI as is (the prefix helps it detect the image type)
     let result = "ok", note = "";
     if (v.err) { result = v.wait ? "manual" : "bad"; note = v.err; }
     else { note = problem(v, b); if (note) result = "bad"; else if (v.amount! > Number(b.total)) note = `โอนเกิน ${v.amount! - Number(b.total)} บาท`; }
