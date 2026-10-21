@@ -274,7 +274,7 @@
       ${next.length ? `<ul class="chips">${next.map((s) => `<li><a class="chip" href="#book" data-book="${s.day}|${s.hm}"><span>${esc(rel(s.day))}</span><b>${s.hm}</b><em>${s.remaining <= 3 ? P("เหลือ " + s.remaining + " ที่", s.remaining + " left") : P("ถึง " + endHM(s.hm), "until " + endHM(s.hm))}</em></a></li>`).join("")}<li><a class="chip chip--more" href="#book" data-go="book">${P("ดูวันอื่น", "More days")}</a></li></ul>` : `<p class="muted">${P("ตอนนี้ยังไม่มีรอบว่างในสัปดาห์นี้ ลองดูวันถัดไปในหน้าจอง", "No open sessions this week. Try later dates on the booking page.")}</p>`}
     </div>
   </div>
-  <div class="hero-media"><div class="pebble"><img src="${IMG("hero.jpg")}" srcset="${IMG("hero-800.jpg")} 800w, ${IMG("hero.jpg")} 941w" sizes="(min-width: 900px) 46vw, 92vw" width="941" height="1672" alt="${P("อ่างไม้ใส่น้ำแข็งกับเป็ดยางสีเหลือง ใต้ร่มลายเหลืองในสวนของ Peaceful Day", "Ice-filled wooden tubs with yellow rubber ducks under a yellow-striped umbrella in the Peaceful Day garden")}" fetchpriority="high"></div></div>
+  <div class="hero-media"><div class="pebble"><img src="${IMG("hero-sky.jpg")}" srcset="${IMG("hero-sky-800.jpg")} 800w, ${IMG("hero-sky.jpg")} 941w" sizes="(min-width: 900px) 46vw, 92vw" width="941" height="1672" alt="${P("อ่างไม้ใส่น้ำแข็งกับเป็ดยางสีเหลือง ใต้ร่มลายเหลืองในสวนของ Peaceful Day", "Ice-filled wooden tubs with yellow rubber ducks under a yellow-striped umbrella in the Peaceful Day garden")}" fetchpriority="high"></div></div>
 </div></section>
 
 <section class="section" id="included" aria-labelledby="inc-title"><div class="wrap">
