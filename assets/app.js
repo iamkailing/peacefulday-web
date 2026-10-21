@@ -64,8 +64,9 @@
   }
   async function requestCode(email, captcha) {
     const body = { email, create_user: true };
+    const back = location.origin + location.pathname;
     if (captcha) body.gotrue_meta_security = { captcha_token: captcha };
-    const r = await fetch(CFG.url + "/auth/v1/otp", { method: "POST", headers: H, body: JSON.stringify(body) });
+    const r = await fetch(CFG.url + "/auth/v1/otp?redirect_to=" + encodeURIComponent(back), { method: "POST", headers: H, body: JSON.stringify(body) });
     if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.msg || j.error_description || j.message || "otp"); }
   }
   async function verifyCode(email, code) {
@@ -122,10 +123,17 @@
     const h = location.hash;
     if (h.includes("access_token=")) {
       const q = new URLSearchParams(h.slice(h.indexOf("#") + 1).replace(/^admin&?/, ""));
-      session = { access_token: q.get("access_token"), refresh_token: q.get("refresh_token"), expires_at: Date.now() + Number(q.get("expires_in") || 3600) * 1000, email: "" };
-      store.set(SESSION_KEY, session);
-      window.__pfdRecovery = q.get("type") === "recovery";
-      history.replaceState(null, "", location.pathname + "#admin");
+      const got = { access_token: q.get("access_token"), refresh_token: q.get("refresh_token"), expires_at: Date.now() + Number(q.get("expires_in") || 3600) * 1000, email: "" };
+      if (q.get("type") === "magiclink") {
+        // a customer clicked the sign-in link instead of typing the code
+        try { got.email = JSON.parse(atob(got.access_token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"))).email || ""; } catch (e) { /* unreadable token */ }
+        cust = got; store.set(CUST_KEY, got);
+        history.replaceState(null, "", location.pathname + "#book");
+      } else {
+        session = got; store.set(SESSION_KEY, session);
+        window.__pfdRecovery = q.get("type") === "recovery";
+        history.replaceState(null, "", location.pathname + "#admin");
+      }
     }
   })();
 
@@ -313,7 +321,7 @@
 
   // ---------- customer sign-in: email, then the 6-digit code from the email ----------
   function loginPanel(note) {
-    if (R.otpEmail) return `<div class="login-box" id="otp-box"><p>${P("เราส่งรหัส 6 หลักไปที่", "We sent a 6-digit code to")} <b>${esc(R.otpEmail)}</b> ${P("(ถ้าไม่เห็น ลองดูในอีเมลขยะ)", "(check spam if you don't see it)")}</p>
+    if (R.otpEmail) return `<div class="login-box" id="otp-box"><p>${P("เราส่งอีเมลเข้าสู่ระบบไปที่", "We emailed a sign-in message to")} <b>${esc(R.otpEmail)}</b> ${P("ใส่รหัสในอีเมล หรือกดลิงก์ในอีเมลก็ได้ (ถ้าไม่เห็น ลองดูในอีเมลขยะ)", "Enter the code from it, or tap its link. (Check spam if you don't see it.)")}</p>
       <div class="field"><label for="otp-code">${P("รหัสจากอีเมล", "Code from the email")}</label><input id="otp-code" inputmode="numeric" autocomplete="one-time-code" maxlength="8" placeholder="123456"></div>
       <div class="btn-row"><button class="btn btn--primary" type="button" data-otp-verify>${P("ยืนยันรหัส", "Confirm code")}</button><button class="btn btn--ghost" type="button" data-otp-again>${P("เปลี่ยนอีเมล / ขอรหัสใหม่", "Change email / new code")}</button></div></div>`;
     return `<div class="login-box" id="otp-box">${note ? `<p>${note}</p>` : ""}
