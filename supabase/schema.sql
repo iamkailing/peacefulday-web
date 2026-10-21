@@ -93,6 +93,24 @@ create index if not exists bookings_user on bookings (user_id);
 create index if not exists bookings_phone on bookings (phone);
 create index if not exists bookings_created on bookings (created_at);
 
+-- member profile, filled in once after signing up (one row per login)
+create table if not exists customers (
+  user_id uuid primary key,
+  email text not null default '',
+  phone text not null default '',
+  first_name text not null default '',
+  last_name text not null default '',
+  birth_date date,
+  gender text not null default '' check (gender in ('', 'male', 'female', 'unspecified')),
+  marketing_consent boolean not null default false,
+  consent_at timestamptz,
+  terms_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+alter table customers enable row level security;
+revoke all on customers from anon, authenticated;
+
 create table if not exists staff (
   user_id uuid primary key,
   email text not null,
@@ -106,6 +124,8 @@ create table if not exists staff_invites (
   role text not null default 'staff' check (role in ('owner','manager','staff')),
   name text not null default ''
 );
+-- sign-ups are not email-confirmed, so an invite is claimed only with the 6-digit code the owner passes on
+alter table staff_invites add column if not exists code text not null default lpad((floor(random() * 1000000))::int::text, 6, '0');
 
 create table if not exists audit (
   id bigserial primary key,
@@ -295,10 +315,45 @@ declare em text := _customer_email();
 begin
   return jsonb_build_object(
     'email', em,
-    'last', (select jsonb_build_object('name', name, 'phone', phone) from bookings
-             where user_id = auth.uid() or email = em order by created_at desc limit 1),
+    'last', coalesce((select jsonb_build_object('name', btrim(first_name || ' ' || last_name), 'phone', phone) from customers where user_id = auth.uid()),
+                     (select jsonb_build_object('name', name, 'phone', phone) from bookings
+                      where user_id = auth.uid() order by created_at desc limit 1)),
     'bookings', coalesce((select jsonb_agg(_booking_json(b) || jsonb_build_object('token', b.token) order by b.day desc, b.hm desc)
-                          from (select * from bookings where user_id = auth.uid() or email = em order by day desc, hm desc limit 50) b), '[]'::jsonb));
+                          from (select * from bookings where user_id = auth.uid() order by day desc, hm desc limit 50) b), '[]'::jsonb));
+end $$;
+
+-- the signed-in member's profile, or null if they have not filled it in yet
+create or replace function my_profile() returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare em text := _customer_email(); c customers;
+begin
+  select * into c from customers where user_id = auth.uid();
+  if not found then return null; end if;
+  return jsonb_build_object('email', em, 'phone', c.phone, 'first_name', c.first_name, 'last_name', c.last_name,
+    'birth_date', c.birth_date, 'gender', c.gender, 'marketing_consent', c.marketing_consent);
+end $$;
+
+create or replace function save_profile(p jsonb) returns jsonb
+language plpgsql volatile security definer set search_path = public as $$
+declare em text := _customer_email(); v_phone text := _phone(p->>'phone');
+  v_first text := btrim(coalesce(p->>'first_name', '')); v_last text := btrim(coalesce(p->>'last_name', ''));
+  v_birth date; v_gender text := coalesce(p->>'gender', ''); v_mkt boolean := coalesce((p->>'marketing_consent')::boolean, false);
+begin
+  if length(v_first) < 1 or length(v_first) > 60 or length(v_last) > 60 then raise exception 'name'; end if;
+  if v_phone !~ '^0[2-9][0-9]{7,8}$' then raise exception 'phone'; end if;
+  if v_gender not in ('', 'male', 'female', 'unspecified') then v_gender := ''; end if;
+  if coalesce(p->>'birth_date', '') <> '' then
+    v_birth := (p->>'birth_date')::date;
+    if v_birth > (_now_bkk())::date or v_birth < date '1900-01-01' then raise exception 'birth'; end if;
+  end if;
+  if not coalesce((p->>'terms')::boolean, false) and not exists (select 1 from customers where user_id = auth.uid()) then raise exception 'terms'; end if;
+  insert into customers as c (user_id, email, phone, first_name, last_name, birth_date, gender, marketing_consent, consent_at, terms_at)
+  values (auth.uid(), em, v_phone, v_first, v_last, v_birth, v_gender, v_mkt, case when v_mkt then now() end, now())
+  on conflict (user_id) do update set email = em, phone = v_phone, first_name = v_first, last_name = v_last, birth_date = v_birth,
+    gender = v_gender, marketing_consent = v_mkt,
+    consent_at = case when v_mkt and not c.marketing_consent then now() when not v_mkt then null else c.consent_at end,
+    updated_at = now();
+  return my_profile();
 end $$;
 
 create or replace function get_booking(p_ref text, p_token uuid) returns jsonb
@@ -344,7 +399,8 @@ begin
 end $$;
 
 -- ---------- staff (signed in with Supabase Auth) ----------
-create or replace function staff_me() returns jsonb
+drop function if exists staff_me();
+create or replace function staff_me(p_code text default '') returns jsonb
 language plpgsql volatile security definer set search_path = public as $$
 declare em text := lower(coalesce(auth.jwt()->>'email', '')); inv staff_invites;
 begin
@@ -352,6 +408,9 @@ begin
   if not exists (select 1 from staff where user_id = auth.uid()) then
     select * into inv from staff_invites where email = em;
     if found then
+      if btrim(coalesce(p_code, '')) <> inv.code then
+        return jsonb_build_object('need_code', true, 'wrong', btrim(coalesce(p_code, '')) <> '');
+      end if;
       insert into staff (user_id, email, name, role) values (auth.uid(), em, inv.name, inv.role);
       delete from staff_invites where email = em;
     end if;
@@ -590,17 +649,21 @@ begin
   perform _need('staff');
   return jsonb_build_object(
     'staff', coalesce((select jsonb_agg(jsonb_build_object('email', email, 'name', name, 'role', role) order by created_at) from staff), '[]'::jsonb),
-    'invites', coalesce((select jsonb_agg(jsonb_build_object('email', email, 'name', name, 'role', role)) from staff_invites), '[]'::jsonb));
+    'invites', coalesce((select jsonb_agg(jsonb_build_object('email', email, 'name', name, 'role', role, 'code', case when _role() = 'owner' then code end)) from staff_invites), '[]'::jsonb));
 end $$;
 
-create or replace function staff_invite(p_email text, p_role text, p_name text) returns void
+drop function if exists staff_invite(text, text, text);
+create or replace function staff_invite(p_email text, p_role text, p_name text) returns text
 language plpgsql volatile security definer set search_path = public as $$
+declare c text;
 begin
   perform _need('owner');
   if p_role not in ('manager','staff') then raise exception 'forbidden'; end if;
   insert into staff_invites (email, role, name) values (lower(btrim(p_email)), p_role, coalesce(p_name, ''))
-  on conflict (email) do update set role = excluded.role, name = excluded.name;
+  on conflict (email) do update set role = excluded.role, name = excluded.name
+  returning code into c;
   perform _log('', 'เพิ่มพนักงาน ' || lower(btrim(p_email)));
+  return c;
 end $$;
 
 create or replace function staff_remove(p_email text) returns void
@@ -649,8 +712,8 @@ end $$;
 
 grant execute on function public_config(), availability(date, int, int), get_booking(text, uuid),
   find_booking(text, text), cancel_booking(text, uuid), move_booking(text, uuid, date, text) to anon, authenticated;
-grant execute on function create_booking(jsonb), my_bookings() to authenticated;
-grant execute on function staff_me(), staff_day(date), staff_search(text), staff_booking(text), staff_create_booking(jsonb),
+grant execute on function create_booking(jsonb), my_bookings(), my_profile(), save_profile(jsonb) to authenticated;
+grant execute on function staff_me(text), staff_day(date), staff_search(text), staff_booking(text), staff_create_booking(jsonb),
   staff_checkin(text, text), staff_take_payment(text, text), staff_set_status(text, text), staff_move(text, date, text, boolean),
   staff_note(text, text), staff_set_slot(date, text, boolean, int), staff_set_closed_day(date, boolean, text), staff_set_holiday(date, boolean, text), staff_closed_days(),
   staff_save_settings(jsonb), staff_overview(date), staff_days(date, int), staff_waiting(), staff_export(date, date), staff_team(), staff_invite(text, text, text), staff_remove(text) to authenticated;

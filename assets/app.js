@@ -83,7 +83,7 @@
     const r = await fetch(CFG.url + "/auth/v1/user", { method: "PUT", headers: Object.assign({ Authorization: "Bearer " + (await custToken()) }, H), body: JSON.stringify({ password }) });
     if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error_code || j.msg || j.message || "password"); }
   }
-  function custOut() { cust = null; store.del(CUST_KEY); store.del(ME_KEY); }
+  function custOut() { cust = null; store.del(CUST_KEY); store.del(ME_KEY); if (typeof R !== "undefined") { R.profile = undefined; R.pf = null; } }
   // bot check (Cloudflare Turnstile); skipped until a site key is set in config.js
   function mountCaptcha() {
     const el = document.getElementById("captcha");
@@ -164,6 +164,8 @@
     method: ["เลือกวิธีรับเงินก่อน", "Choose how the payment was made."],
     login: ["เข้าสู่ระบบก่อนจอง", "Please sign in first."],
     package: ["ใส่ชื่อแพ็กเกจก่อน", "Enter the package name."],
+    birth: ["วันเกิดไม่ถูกต้อง", "That date of birth doesn't look right."],
+    terms: ["กรุณายอมรับนโยบายความเป็นส่วนตัวก่อน", "Please accept the privacy policy first."],
   };
   const errText = (e) => { const m = ERR[e && e.code] || ERR[e && e.message]; return m ? P(m[0], m[1]) : P("ระบบขัดข้อง ลองใหม่อีกครั้ง", "Something went wrong. Please try again."); };
 
@@ -247,7 +249,7 @@
     <p class="foot-brand">${P('แช่เย็น อบร้อน <span class="nw">แล้วพักในสวน</span>', "Cold plunge, warm sauna, a quiet garden.")}</p>
     <div class="foot-col"><h2>${P("ที่ตั้งและเวลาเปิด", "Visit us")}</h2><p>${esc(P(C.address_th, C.address_en))}</p><p>${esc(hoursLine())}</p><p><a href="${esc(C.map_url)}" target="_blank" rel="noopener">${P("เปิดในแผนที่", "Open in Maps")}</a></p></div>
     <div class="foot-col"><h2>${P("ติดต่อ", "Contact")}</h2><p>${P("โทร", "Call")} <a href="tel:${esc((C.phone || "").replace(/\D/g, ""))}">${esc(C.phone)}</a></p>${C.line ? `<p>LINE ${esc(C.line)}</p>` : ""}</div>
-    <div class="foot-col"><h2>${P("การจอง", "Bookings")}</h2><ul><li><a href="#book" data-go="book">${P("จองรอบ", "Book a session")}</a></li><li><a href="#my" data-go="my">${P("ดูหรือแก้ไขการจอง", "View or change a booking")}</a></li><li><a href="#admin" data-go="admin">${P("สำหรับทีมงาน", "Staff")}</a></li></ul></div>
+    <div class="foot-col"><h2>${P("การจอง", "Bookings")}</h2><ul><li><a href="#book" data-go="book">${P("จองรอบ", "Book a session")}</a></li><li><a href="#my" data-go="my">${P("ดูหรือแก้ไขการจอง", "View or change a booking")}</a></li><li><a href="#terms" data-go="terms">${P("เงื่อนไขการจอง", "Booking terms")}</a></li><li><a href="#privacy" data-go="privacy">${P("นโยบายความเป็นส่วนตัว", "Privacy policy")}</a></li><li><a href="#admin" data-go="admin">${P("สำหรับทีมงาน", "Staff")}</a></li></ul></div>
   </div>
   <div class="foot-base"><span>© ${new Date().getFullYear()} Peaceful Day</span><a href="#" data-lang>${P("English", "ภาษาไทย")}</a></div>
 </div></footer>${opts.after || ""}</div>`;
@@ -377,7 +379,7 @@
           const inNow = await custSignUp(em, pw);
           if (!inNow) { R.authSent = P(`สมัครแล้ว กดลิงก์ยืนยันในอีเมลที่ส่งไปที่ ${esc(em)} แล้วจะเข้าสู่ระบบให้อัตโนมัติ`, `Account created. Open the confirmation link we sent to ${esc(em)} and you'll be signed in.`); R.flashErr = ""; render(); return; }
         } else await custSignIn(em, pw);
-        R.flashErr = ""; R.authMode = "in"; pwKeep = "";
+        R.flashErr = ""; R.authMode = "in"; pwKeep = ""; R.profile = undefined; R.pf = null;
         try { const mb = await rpc("my_bookings", {}, "cust"); if (mb && mb.last) { BK.name = BK.name || mb.last.name; BK.phone = BK.phone || mb.last.phone; } } catch (err) { /* first booking */ }
         if (after) after(); render();
       } catch (err) { R.flashErr = authErr(err.message); render(); }
@@ -404,6 +406,8 @@
   // ---------- booking: day → time → people → details → confirm ----------
   async function viewBook() {
     if (R.pre) { const [d, h] = R.pre.split("|"); BK.day = d; BK.hm = h; R.pre = ""; }
+    if (cust && !(await ensureProfile())) return toProfile("book");
+    if (cust && R.profile && !BK.name && !BK.phone) { BK.name = (R.profile.first_name + " " + R.profile.last_name).trim(); BK.phone = R.profile.phone; }
     if (cust && !BK.name && !BK.phone) {
       const me = store.get(ME_KEY);
       if (me && me.email === cust.email) { BK.name = me.name || ""; BK.phone = me.phone || ""; }
@@ -575,15 +579,128 @@
     });
   }
 
+  // ---------- member profile: filled in once after signing up ----------
+  async function ensureProfile() {
+    if (!cust) return true;
+    if (R.profile === undefined) { try { R.profile = await rpc("my_profile", {}, "cust"); } catch (e) { if (e.code === "login" || /JWT/i.test(e.message)) custOut(); return true; } }
+    return !!R.profile;
+  }
+  function toProfile(after) { R.afterProfile = after; R.view = "profile"; try { history.replaceState(null, "", "#profile"); } catch (e) { /* ignore */ } return viewProfile(); }
+  async function viewProfile() {
+    if (cust && R.profile === undefined) await ensureProfile();
+    const pr = R.profile || {}, first = !R.profile, F = R.pf || (R.pf = { phone: (pr.phone || BK.phone || "").replace(/^0/, ""), first_name: pr.first_name || "", last_name: pr.last_name || "", birth_date: pr.birth_date || "", gender: pr.gender || "", marketing_consent: !!pr.marketing_consent });
+    const fe = R.pfErr || {};
+    const field = (k, label, input, opt) => `<div class="field${fe[k] ? " has-error" : ""}"><label for="pf-${k}">${label}${opt ? ` <span class="muted small">${P("(ไม่บังคับ)", "(optional)")}</span>` : ""}</label>${input}${fe[k] ? `<span class="err">${esc(fe[k])}</span>` : ""}</div>`;
+    const g = (v, th, en) => `<label class="radio"><input type="radio" name="pf-gender" value="${v}"${F.gender === v ? " checked" : ""}><span>${P(th, en)}</span></label>`;
+    return pubLayout(`<header class="page-head"><div class="wrap"><h1>${first ? P("กรอกข้อมูลสมาชิก", "Complete your profile") : P("ข้อมูลสมาชิก", "Your profile")}</h1>${first ? `<p class="lede">${P("กรอกครั้งเดียว ครั้งต่อไปจองได้เลยไม่ต้องกรอกซ้ำ", "Fill this in once and booking is quicker next time.")}</p>` : ""}</div></header>
+<section class="section" style="padding-top:8px"><div class="wrap">${flashHTML()}
+  ${!cust ? `<div class="panel" style="max-width:520px">${loginPanel(P("เข้าสู่ระบบก่อน", "Please sign in first."))}</div>` : `
+  <form class="panel profile-form" id="pf" novalidate>
+    <h2>${P("ข้อมูลบัญชี", "Account")}</h2>
+    <p class="muted small">${P("อีเมล", "Email")}: <b>${esc(cust.email)}</b></p>
+    ${field("phone", P("เบอร์มือถือ", "Mobile number"), `<div class="tel-row"><span class="tel-cc" aria-hidden="true">🇹🇭 +66</span><input id="pf-phone" type="tel" inputmode="tel" autocomplete="tel-national" maxlength="12" placeholder="8x xxx xxxx" value="${esc(F.phone)}" aria-label="${P("เบอร์มือถือ ไม่ต้องใส่ 0 ข้างหน้า", "Mobile number")}"></div>`)}
+    <h2>${P("ข้อมูลส่วนตัว", "Personal details")}</h2>
+    <div class="row-2">${field("first_name", P("ชื่อ", "First name"), `<input id="pf-first_name" type="text" autocomplete="given-name" maxlength="60" value="${esc(F.first_name)}">`)}${field("last_name", P("นามสกุล", "Last name"), `<input id="pf-last_name" type="text" autocomplete="family-name" maxlength="60" value="${esc(F.last_name)}">`, true)}</div>
+    ${field("birth_date", P("วันเกิด", "Date of birth"), `<input id="pf-birth_date" type="date" max="${today()}" value="${esc(F.birth_date)}">`, true)}
+    <fieldset class="field"><legend>${P("เพศ", "Gender")} <span class="muted small">${P("(ไม่บังคับ)", "(optional)")}</span></legend><div class="radio-row">${g("male", "ชาย", "Male")}${g("female", "หญิง", "Female")}${g("unspecified", "ไม่ระบุ", "Prefer not to say")}</div></fieldset>
+    <label class="check"><input type="checkbox" id="pf-mkt"${F.marketing_consent ? " checked" : ""}><span>${P("ยินยอมให้ Peaceful Day ส่งข่าวสาร โปรโมชัน และข้อเสนอพิเศษทางอีเมลหรือ SMS (เลิกรับได้ทุกเมื่อ)", "I agree to receive news, promotions and offers from Peaceful Day by email or SMS (you can opt out any time).")}</span></label>
+    ${first ? `<p class="muted small">${P('การกดบันทึกถือว่าคุณยอมรับ<a href="#privacy" data-go="privacy">นโยบายความเป็นส่วนตัว</a>และ<a href="#terms" data-go="terms">เงื่อนไขการจอง</a>ของ Peaceful Day', 'By saving, you agree to the Peaceful Day <a href="#privacy" data-go="privacy">privacy policy</a> and <a href="#terms" data-go="terms">booking terms</a>.')}</p>` : ""}
+    <div class="btn-row"><button class="btn btn--primary" type="submit" id="pf-save">${first ? P("บันทึกและไปจองรอบ", "Save and book") : P("บันทึกข้อมูล", "Save")}</button>${!first ? `<a class="btn btn--ghost" href="#my" data-go="my">${P("กลับ", "Back")}</a>` : ""}</div>
+  </form>`}
+</div></section>`);
+  }
+  function bindProfile() {
+    if (!cust) { bindLoginPanel(); return; }
+    const f = $("#pf"); if (!f) return;
+    const keep = () => { const F = R.pf; F.phone = $("#pf-phone").value; F.first_name = $("#pf-first_name").value; F.last_name = $("#pf-last_name").value; F.birth_date = $("#pf-birth_date").value; const g = $("input[name=pf-gender]:checked"); F.gender = g ? g.value : ""; F.marketing_consent = $("#pf-mkt").checked; };
+    const ready = () => { const d = $("#pf-phone").value.replace(/\D/g, ""); $("#pf-save").disabled = !($("#pf-first_name").value.trim() && d.length >= 8); };
+    f.addEventListener("input", ready); ready();
+    f.addEventListener("submit", async (e) => {
+      e.preventDefault(); keep(); const F = R.pf; R.pfErr = {};
+      let d = F.phone.replace(/\D/g, ""); if (d.startsWith("66") && d.length >= 11) d = d.slice(2); if (!d.startsWith("0")) d = "0" + d;
+      if (!/^0[2-9]\d{7,8}$/.test(d)) R.pfErr.phone = errText({ code: "phone" });
+      if (!F.first_name.trim()) R.pfErr.first_name = errText({ code: "name" });
+      if (Object.keys(R.pfErr).length) { render(); return; }
+      try {
+        const first = !R.profile;
+        R.profile = await rpc("save_profile", { p: { phone: d, first_name: F.first_name, last_name: F.last_name, birth_date: F.birth_date || "", gender: F.gender, marketing_consent: F.marketing_consent, terms: true } }, "cust");
+        BK.name = (R.profile.first_name + " " + R.profile.last_name).trim(); BK.phone = R.profile.phone; R.pf = null;
+        if (first) go(R.afterProfile || "book", { flash: P("บันทึกข้อมูลแล้ว เลือกรอบที่ต้องการได้เลย", "Saved. Choose your session.") });
+        else { R.flash = P("บันทึกข้อมูลแล้ว", "Saved."); render(); }
+      } catch (err) { if (err.code === "phone" || err.code === "name" || err.code === "birth") R.pfErr[err.code === "name" ? "first_name" : err.code === "birth" ? "birth_date" : "phone"] = errText(err); else R.flashErr = errText(err); render(); }
+    });
+  }
+
+  // ---------- privacy notice and booking terms (written for this shop; facts match how the system works) ----------
+  const UPDATED = "22 ต.ค. 2569";
+  function docPage(titleTh, titleEn, sections) {
+    return pubLayout(`<header class="page-head"><div class="wrap"><h1>${P(titleTh, titleEn)}</h1><p class="lede small">${P("ปรับปรุงล่าสุด " + UPDATED, "Last updated 22 Oct 2026")}</p></div></header>
+<section class="section" style="padding-top:8px"><div class="wrap prose">${sections.map(([hTh, hEn, items]) => `<h2>${P(hTh, hEn)}</h2>${Array.isArray(items) ? `<ul>${items.map(([a, b]) => `<li>${P(a, b)}</li>`).join("")}</ul>` : `<p>${items}</p>`}`).join("")}
+  <p class="muted small" style="margin-top:28px">${P(`สอบถามเพิ่มเติม โทร ${esc(C.phone)} หรือแจ้งทีมงานที่ร้าน`, `Questions? Call ${esc(C.phone)} or ask our team at the shop.`)}</p>
+</div></section>`);
+  }
+  function viewPrivacy() {
+    return docPage("นโยบายความเป็นส่วนตัว", "Privacy policy", [
+      ["ข้อมูลที่เราเก็บ", "What we collect", [
+        ["อีเมลและรหัสผ่านสำหรับเข้าสู่ระบบ รหัสผ่านถูกเข้ารหัสไว้ ทีมงานมองไม่เห็น", "Your email and password for signing in. Passwords are encrypted; our team cannot see them."],
+        ["ชื่อ นามสกุล และเบอร์มือถือ", "Your name and mobile number."],
+        ["วันเกิดและเพศ เฉพาะเมื่อคุณเลือกกรอก", "Date of birth and gender, only if you choose to give them."],
+        ["ประวัติการจอง เช่น วัน เวลา จำนวนคน หมายเหตุที่คุณแจ้ง และการชำระเงินที่ร้าน", "Your bookings: day, time, number of people, any note you leave and payment at the shop."],
+        ["ข้อมูลทางเทคนิคที่ผู้ให้บริการเว็บบันทึกอัตโนมัติเพื่อความปลอดภัย เช่น ที่อยู่ IP และประเภทเบราว์เซอร์", "Technical details our web providers record automatically for security, such as IP address and browser type."]]],
+      ["เราใช้ข้อมูลเพื่อ", "How we use it", [
+        ["รับจอง ยืนยัน เลื่อน หรือยกเลิกการจอง และติดต่อคุณเรื่องการจอง", "To take, confirm, move or cancel your bookings and contact you about them."],
+        ["ยืนยันตัวตนตอนเข้าสู่ระบบ และป้องกันบอทหรือการใช้งานที่ผิดปกติ", "To confirm it's you when you sign in, and to block bots and abuse."],
+        ["ส่งข่าวสารและโปรโมชัน เฉพาะเมื่อคุณติ๊กยินยอม และเลิกรับได้ทุกเมื่อที่หน้าข้อมูลสมาชิก", "To send news and offers, only if you ticked the consent box. You can opt out any time on your profile page."],
+        ["ดูภาพรวมของร้าน เช่น จำนวนผู้ใช้บริการต่อวัน โดยไม่ระบุตัวบุคคล", "To see overall figures, such as visits per day, without identifying anyone."]]],
+      ["ใครเห็นข้อมูลของคุณ", "Who can see your data", [
+        ["ทีมงานของร้านที่ดูแลการจอง เห็นชื่อ เบอร์ และรายละเอียดการจองเท่าที่จำเป็นต่อการให้บริการ", "Our booking team sees your name, number and booking details, as needed to serve you."],
+        ["ผู้ให้บริการระบบที่เราใช้: Supabase (ฐานข้อมูลและบัญชีผู้ใช้), Resend (ส่งอีเมล), Cloudflare (ตรวจว่าไม่ใช่บอทและโดเมน), GitHub Pages (เว็บไซต์) ข้อมูลบางส่วนอาจถูกจัดเก็บหรือประมวลผลบนเซิร์ฟเวอร์นอกประเทศไทย", "Service providers we use: Supabase (database and accounts), Resend (email), Cloudflare (robot check and domain) and GitHub Pages (website). Some data may be stored or processed on servers outside Thailand."],
+        ["เราไม่ขายข้อมูลของคุณ และจะเปิดเผยต่อหน่วยงานรัฐเฉพาะเมื่อกฎหมายกำหนด", "We do not sell your data, and only disclose it to authorities when the law requires."]]],
+      ["สิทธิของคุณ", "Your rights", [
+        ["ดูและแก้ไขชื่อ เบอร์ วันเกิด เพศ และการรับข่าวสารได้เองที่หน้าข้อมูลสมาชิก", "View and edit your name, number, date of birth, gender and marketing choice on your profile page."],
+        ["ขอสำเนาข้อมูล ขอลบบัญชี หรือถอนความยินยอม ได้โดยโทรหรือแจ้งทีมงานที่ร้าน", "Ask for a copy of your data, deletion of your account, or to withdraw consent by calling us or asking at the shop."]]],
+      ["ความปลอดภัย", "Security", [
+        ["ข้อมูลถูกส่งผ่านการเชื่อมต่อแบบเข้ารหัส (HTTPS) และฐานข้อมูลเปิดให้เข้าถึงผ่านระบบของร้านเท่านั้น", "Data travels over encrypted connections (HTTPS), and the database is only reachable through the shop's system."],
+        ["ไม่มีระบบออนไลน์ใดปลอดภัยได้ 100% กรุณาตั้งรหัสผ่านที่เดายากและไม่ใช้ซ้ำกับที่อื่น", "No online system is perfectly secure. Please use a strong password you don't use elsewhere."]]],
+      ["การเปลี่ยนแปลงนโยบาย", "Changes to this policy", P("ถ้ามีการเปลี่ยนแปลง เราจะแก้ไขหน้านี้และวันที่ปรับปรุงด้านบน", "If this policy changes, we will update this page and the date above.")],
+    ]);
+  }
+  function viewTerms() {
+    const hrs = C.cancel_hours, moves = C.max_moves;
+    return docPage("เงื่อนไขการจอง", "Booking terms", [
+      ["การจอง", "Booking", [
+        ["จองออนไลน์ได้เมื่อเข้าสู่ระบบด้วยบัญชีสมาชิก การจองสำเร็จเมื่อหน้าเว็บแสดงหมายเลขการจอง (PD-xxxxxx)", "Online booking needs a member account. Your booking is made when the page shows a booking reference (PD-xxxxxx)."],
+        [`ใช้บริการ Ice Bath และ Sauna ได้ ${C.duration / 60} ชั่วโมงนับจากเวลาที่จอง`, `You can use the ice bath and sauna for ${C.duration / 60} hours from your booked time.`],
+        [`แต่ละรอบรับจำนวนจำกัด (วันธรรมดา ${C.capacity} คน, เสาร์-อาทิตย์และวันหยุดนักขัตฤกษ์ ${C.capacity_weekend || C.capacity} คน) กลุ่มใหญ่หรือต้องการเหมารอบ กรุณาโทรหาเรา`, `Each session has limited places (${C.capacity} on weekdays, ${C.capacity_weekend || C.capacity} on weekends and public holidays). For larger groups or a private session, please call us.`],
+        ["กรุณามาถึงก่อนเวลา 10–15 นาที ถ้ามาสาย เวลาใช้บริการยังสิ้นสุดตามรอบเดิม", "Please arrive 10–15 minutes early. If you are late, your session still ends at the original time."]]],
+      ["ราคาและการชำระเงิน", "Price and payment", [
+        [`ราคา ${baht(C.price)} ต่อคน${pairOn() ? ` และโปรมา 2 คน ${baht(C.pair_price)}` : ""} ตามที่แสดงตอนจอง`, `${baht(C.price)} per person${pairOn() ? `, or ${baht(C.pair_price)} for two people` : ""}, as shown when you book.`],
+        ["ชำระที่ร้านเมื่อมาถึง รับเงินสด โอน และบัตร", "Pay at the shop when you arrive, by cash, transfer or card."]]],
+      ["เลื่อนและยกเลิก", "Moving and cancelling", [
+        [`เลื่อนหรือยกเลิกได้เองที่หน้า "การจองของฉัน" ก่อนเวลาเริ่มอย่างน้อย ${hrs} ชั่วโมง (เลื่อนได้ ${moves} ครั้งต่อการจอง)`, `Move or cancel yourself under "My bookings" up to ${hrs} hours before your session (up to ${moves} move${moves > 1 ? "s" : ""} per booking).`],
+        [`หลังจากนั้น กรุณาโทร ${esc(C.phone)} ทีมงานจะช่วยดูให้ตามรอบที่ยังว่าง`, `After that, please call ${esc(C.phone)} and our team will help if there is space.`],
+        ["ร้านอาจปิดรอบหรือปิดร้านในบางกรณี เช่น สภาพอากาศหรือการซ่อมบำรุง ถ้ากระทบการจองของคุณ ทีมงานจะติดต่อเพื่อเลื่อนให้", "We may close a session or the shop, for example for weather or maintenance. If this affects your booking, our team will contact you to move it."]]],
+      ["สุขภาพและความปลอดภัย", "Health and safety", [
+        ["การแช่น้ำเย็นและซาวน่าอาจไม่เหมาะกับผู้มีโรคหัวใจ ความดันสูงที่ยังคุมไม่ได้ ผู้ตั้งครรภ์ หรือมีโรคประจำตัว หากไม่แน่ใจกรุณาปรึกษาแพทย์ก่อน", "Cold water and sauna may not suit people with heart conditions, uncontrolled high blood pressure, pregnancy or other medical conditions. If unsure, ask your doctor first."],
+        ["แจ้งทีมงานเมื่อมาถึงถ้ามีโรคประจำตัว เริ่มแช่ช่วงสั้น ๆ และหยุดพักทันทีเมื่อรู้สึกไม่สบาย", "Tell our team about any medical condition when you arrive, keep first dips short and stop as soon as you feel unwell."],
+        ["กรุณาทำตามคำแนะนำของทีมงานและป้ายในร้าน งดเครื่องดื่มแอลกอฮอล์ก่อนใช้บริการ", "Please follow our team's guidance and the signs at the shop, and don't drink alcohol before your session."]]],
+      ["บัญชีสมาชิก", "Your account", [
+        ["ดูแลรหัสผ่านของคุณให้ปลอดภัย การจองที่ทำผ่านบัญชีของคุณถือเป็นการจองของคุณ", "Keep your password safe. Bookings made with your account are treated as yours."],
+        ["ร้านอาจระงับบัญชีที่ใช้งานผิดปกติ เช่น จองแล้วไม่มาซ้ำหลายครั้งโดยไม่แจ้ง", "We may suspend accounts that are misused, for example repeated no-shows without notice."]]],
+      ["การเปลี่ยนแปลงเงื่อนไข", "Changes to these terms", P("ถ้ามีการเปลี่ยนแปลง เราจะแก้ไขหน้านี้และวันที่ปรับปรุงด้านบน การจองที่ทำไว้แล้วใช้เงื่อนไข ณ วันที่จอง", "If these terms change, we will update this page and the date above. Existing bookings keep the terms from when they were made.")],
+    ]);
+  }
+
   // ---------- find my booking ----------
   async function viewMy() {
     let mine = null;
+    if (cust && !R.custRecovery && !(await ensureProfile())) return toProfile("my");
     if (cust) { try { mine = await rpc("my_bookings", {}, "cust"); } catch (e) { if (e.code === "login" || /JWT/i.test(e.message)) custOut(); } }
     const st = { confirmed: P("จองแล้ว", "Booked"), checked_in: P("เช็คอินแล้ว", "Checked in"), cancelled: P("ยกเลิกแล้ว", "Cancelled"), no_show: P("ไม่ได้มา", "Missed") };
     return pubLayout(`<header class="page-head"><div class="wrap"><h1>${P("การจองของฉัน", "My bookings")}</h1></div></header>
 <section class="section" style="padding-top:8px"><div class="wrap">${flashHTML()}
   ${cust && R.custRecovery ? newPasswordPanel() : ""}
-  ${mine ? `${signedInLine()}${mine.bookings.length ? `<div class="cards">${mine.bookings.map((b) => `<a class="bcard" href="#booking/${esc(b.ref)}/${esc(b.token)}" data-open="${esc(b.ref)}|${esc(b.token)}"><span class="date-badge"><b>${Number(b.day.slice(8))}</b><span>${esc(mon(b.day))}</span></span><span class="info"><b>${esc(b.hm)} · ${b.people} ${P("คน", "people")}</b><span>${esc(b.ref)} · ${esc(dShort(b.day))}</span></span><span class="badge ${b.status === "confirmed" || b.status === "checked_in" ? "badge--ok" : "badge--bad"}">${st[b.status]}</span></a>`).join("")}</div>` : `<p class="muted">${P("ยังไม่มีการจอง", "No bookings yet.")}</p>`}<p class="mt-m"><a class="btn btn--primary" href="#book" data-go="book">${P("จองรอบ", "Book a session")}</a></p>`
+  ${mine ? `${signedInLine()}<p class="small"><a href="#profile" data-go="profile">${P("แก้ไขข้อมูลสมาชิก", "Edit your profile")}</a></p>${mine.bookings.length ? `<div class="cards">${mine.bookings.map((b) => `<a class="bcard" href="#booking/${esc(b.ref)}/${esc(b.token)}" data-open="${esc(b.ref)}|${esc(b.token)}"><span class="date-badge"><b>${Number(b.day.slice(8))}</b><span>${esc(mon(b.day))}</span></span><span class="info"><b>${esc(b.hm)} · ${b.people} ${P("คน", "people")}</b><span>${esc(b.ref)} · ${esc(dShort(b.day))}</span></span><span class="badge ${b.status === "confirmed" || b.status === "checked_in" ? "badge--ok" : "badge--bad"}">${st[b.status]}</span></a>`).join("")}</div>` : `<p class="muted">${P("ยังไม่มีการจอง", "No bookings yet.")}</p>`}<p class="mt-m"><a class="btn btn--primary" href="#book" data-go="book">${P("จองรอบ", "Book a session")}</a></p>`
   : `<div class="panel" style="max-width:520px"><h2 style="font-size:var(--step-2);margin-bottom:12px">${P("เข้าสู่ระบบเพื่อดูการจอง", "Sign in to see your bookings")}</h2>${loginPanel("")}</div>`}
 </div></section>`);
   }
@@ -624,7 +741,19 @@
   <p class="muted small"><a href="#home" data-go="home">กลับหน้าเว็บลูกค้า</a></p>
 </form></div></div>`;
   }
+  function viewInviteCode(wrong) {
+    return `<div class="adm"><div class="login-wrap"><form class="card login" id="icode">
+  <div class="brand-row">${LOGO}<h1>ใส่รหัสเชิญทีมงาน</h1></div>
+  <p class="muted">อีเมล <b>${esc(session.email || "")}</b> ได้รับเชิญเป็นทีมงาน ใส่รหัส 6 หลักที่เจ้าของร้านส่งให้ เพื่อยืนยันว่าเป็นคุณ (ใส่ครั้งเดียว)</p>
+  ${wrong ? `<div class="alert alert--bad" role="alert">รหัสไม่ถูกต้อง ลองใหม่อีกครั้ง หรือขอรหัสจากเจ้าของร้าน</div>` : ""}
+  <div class="field"><label for="ic">รหัสเชิญ</label><input id="ic" inputmode="numeric" maxlength="6" autocomplete="one-time-code" required></div>
+  <button class="btn btn--primary btn--block" type="submit">ยืนยัน</button>
+  <p class="muted small"><a href="#admin" data-signout>ออกจากระบบ</a></p>
+</form></div></div>`;
+  }
   function bindLogin() {
+    const ic = $("#icode");
+    if (ic) { ic.addEventListener("submit", (e) => { e.preventDefault(); R.inviteCode = $("#ic").value.trim(); ME = null; render(); }); $("#ic").focus(); return; }
     mountCaptcha();
     $$("[data-signup]").forEach((a) => a.addEventListener("click", (e) => { e.preventDefault(); R.signup = a.dataset.signup === "1"; R.flash = R.flashErr = ""; render(); }));
     const fg = $("[data-forgot]");
@@ -826,14 +955,14 @@
     return admLayout(`<div class="topline"><h1>ทีมงาน</h1></div>
   <section class="card"><div class="table-wrap"><table><thead><tr><th>อีเมล</th><th>ชื่อ</th><th>ตำแหน่ง</th><th></th></tr></thead><tbody>
     ${t.staff.map((s) => `<tr><td>${esc(s.email)}</td><td>${esc(s.name)}</td><td>${ROLE[s.role]}</td><td>${ME.role === "owner" && s.role !== "owner" ? `<button class="btn btn--small btn--ghost" type="button" data-remove="${esc(s.email)}" data-confirm="กดอีกครั้งเพื่อลบ">ลบ</button>` : ""}</td></tr>`).join("")}
-    ${t.invites.map((s) => `<tr class="is-dim"><td>${esc(s.email)}</td><td>${esc(s.name)}</td><td>${ROLE[s.role]} (รอสร้างบัญชี)</td><td>${ME.role === "owner" ? `<button class="btn btn--small btn--ghost" type="button" data-remove="${esc(s.email)}">ยกเลิกคำเชิญ</button>` : ""}</td></tr>`).join("")}
+    ${t.invites.map((s) => `<tr class="is-dim"><td>${esc(s.email)}</td><td>${esc(s.name)}</td><td>${ROLE[s.role]} (รอสร้างบัญชี)${s.code ? ` · รหัสเชิญ <b class="mono">${esc(s.code)}</b>` : ""}</td><td>${ME.role === "owner" ? `<button class="btn btn--small btn--ghost" type="button" data-remove="${esc(s.email)}">ยกเลิกคำเชิญ</button>` : ""}</td></tr>`).join("")}
   </tbody></table></div></section>
-  ${ME.role === "owner" ? `<form class="card" id="inv"><h2>เชิญทีมงาน</h2><p class="muted">เพิ่มอีเมลที่นี่ แล้วให้ทีมงานเปิดหน้า “สำหรับทีมงาน” กด “สร้างบัญชีด้วยอีเมลที่ได้รับเชิญ”</p>
+  ${ME.role === "owner" ? `<form class="card" id="inv"><h2>เชิญทีมงาน</h2><p class="muted">เพิ่มอีเมลที่นี่ ระบบจะให้รหัสเชิญ 6 หลัก ส่งรหัสนั้นให้ทีมงาน แล้วให้ทีมงานเปิดหน้า “สำหรับทีมงาน” กด “สร้างบัญชีด้วยอีเมลที่ได้รับเชิญ” และใส่รหัสตอนเข้าครั้งแรก</p>
     <div class="form-grid"><div class="field"><label for="i-email">อีเมล</label><input type="email" id="i-email" required></div><div class="field"><label for="i-name">ชื่อ</label><input type="text" id="i-name"></div><div class="field"><label for="i-role">ตำแหน่ง</label><select id="i-role"><option value="staff">แอดมินจองคิว (เข้าได้แค่หน้าจองคิว: จองให้ลูกค้า เช็คอิน รับเงิน)</option><option value="manager">ผู้จัดการ (+ ปิดรอบ ตั้งค่า)</option></select></div></div>
     <p><button class="btn btn--primary" type="submit">เพิ่มคำเชิญ</button></p></form>` : ""}`);
   }
   function bindTeam() {
-    const f = $("#inv"); if (f) f.addEventListener("submit", (e) => { e.preventDefault(); act(async () => { await rpc("staff_invite", { p_email: $("#i-email").value, p_role: $("#i-role").value, p_name: $("#i-name").value }, true); return "เพิ่มคำเชิญแล้ว"; }); });
+    const f = $("#inv"); if (f) f.addEventListener("submit", (e) => { e.preventDefault(); act(async () => { const em = $("#i-email").value.trim(); const code = await rpc("staff_invite", { p_email: em, p_role: $("#i-role").value, p_name: $("#i-name").value }, true); return `เพิ่มคำเชิญแล้ว ส่งรหัสเชิญ ${code} ให้ ${em} ใช้ตอนเข้าหลังบ้านครั้งแรก`; }); });
     $$("[data-remove]").forEach((b) => b.addEventListener("click", () => act(async () => { await rpc("staff_remove", { p_email: b.dataset.remove }, true); return "ลบแล้ว"; })));
   }
 
@@ -984,14 +1113,15 @@
       if (isAdm) {
         if (!session) html = viewLogin();
         else {
-          if (!ME) { try { ME = await rpc("staff_me", {}, true); } catch (e) { ME = null; } }
+          if (!ME) { try { ME = await rpc("staff_me", { p_code: R.inviteCode || "" }, true); } catch (e) { ME = null; } }
           if (!session) html = viewLogin();
+          else if (ME && ME.need_code) { const wrong = ME.wrong; ME = null; html = viewInviteCode(wrong); }
           else if (!ME) { signOut(); R.flashErr = errText({ code: "not_staff" }) + " — ให้เจ้าของร้านเพิ่มอีเมลนี้ในหน้า “ทีมงาน” ก่อน"; html = viewLogin(); }
           else if (R.recovery && R.view !== "apassword") { R.view = "apassword"; html = viewPassword(); }
           else if (ME.role === "staff" && !["queue", "apassword"].includes(R.view)) { R.view = "queue"; history.replaceState(null, "", "#queue"); html = await viewQueue(); }
           else html = await ({ queue: viewQueue, admin: viewDashboard, aday: viewDay, abooking: viewAdminBooking, anew: viewNew, asearch: viewSearch, asettings: viewSettings, ateam: viewTeam, apassword: viewPassword }[R.view])();
         }
-      } else html = await ({ home: viewHome, book: viewBook, booking: viewBooking, my: viewMy }[R.view] || viewHome)();
+      } else html = await ({ home: viewHome, book: viewBook, booking: viewBooking, my: viewMy, profile: viewProfile, privacy: viewPrivacy, terms: viewTerms }[R.view] || viewHome)();
     } catch (e) {
       if (e.code === "not_staff" || /JWT/i.test(e.message)) { signOut(); ME = null; R.flashErr = errText(e); html = viewLogin(); }
       else html = `<div class="pub"><section class="err-page"><div class="wrap"><h1>${P("โหลดข้อมูลไม่สำเร็จ", "Couldn't load")}</h1><p class="lede">${esc(errText(e))}</p><button class="btn btn--primary" type="button" onclick="location.reload()">${P("ลองใหม่", "Try again")}</button></div></section></div>`;
@@ -999,7 +1129,7 @@
     if (seq !== renderSeq) return; // a newer screen was requested meanwhile
     app.innerHTML = html;
     bindCommon();
-    const binders = { queue: bindQueue, book: bindBook, booking: bindBooking, my: bindMy, aday: bindDay, abooking: bindAdminBooking, anew: bindNew, asearch: bindSearch, asettings: bindSettings, ateam: bindTeam, apassword: bindPassword };
+    const binders = { profile: bindProfile, queue: bindQueue, book: bindBook, booking: bindBooking, my: bindMy, aday: bindDay, abooking: bindAdminBooking, anew: bindNew, asearch: bindSearch, asettings: bindSettings, ateam: bindTeam, apassword: bindPassword };
     if (isAdm && !$(".adm .shell") && !$(".q-page")) bindLogin(); else if (binders[R.view]) binders[R.view]();
     if (R.anchor) { const a = document.getElementById(R.anchor); R.anchor = ""; if (a) a.scrollIntoView(); }
   }
@@ -1013,7 +1143,7 @@
     const menu = $("[data-menu]"); if (menu) menu.addEventListener("click", () => { const n = $("#mobile-nav"); const o = !n.classList.contains("is-open"); n.classList.toggle("is-open", o); menu.setAttribute("aria-expanded", String(o)); });
     const side = $("[data-side]"); if (side) side.addEventListener("click", () => { R.sideOpen = !R.sideOpen; render(); });
     $$("[data-cust-out]").forEach((a) => a.addEventListener("click", (e) => { e.preventDefault(); custOut(); BK.name = ""; BK.phone = ""; render(); }));
-    const so = $("[data-signout]"); if (so) so.addEventListener("click", () => { signOut(); ME = null; go("admin"); });
+    $$("[data-signout]").forEach((so) => so.addEventListener("click", (e) => { e.preventDefault(); signOut(); ME = null; R.inviteCode = ""; go("admin"); }));
     $$("[data-confirm]").forEach((b) => b.addEventListener("click", (e) => { if (b.dataset.armed === "1") return; e.stopImmediatePropagation(); e.preventDefault(); b.dataset.armed = "1"; const o = b.textContent; b.textContent = b.dataset.confirm; setTimeout(() => { if (b.isConnected) { b.dataset.armed = ""; b.textContent = o; } }, 4000); }, true));
   }
 
@@ -1022,7 +1152,7 @@
     const h = decodeURIComponent((location.hash || "").slice(1));
     const [v, a, b] = h.split("/");
     if (v === "booking" && a && b) Object.assign(R, { view: "booking", ref: a, token: b, justBooked: false });
-    else if (["home", "book", "my"].concat(ADMIN.filter((x) => x !== "abooking")).includes(v)) R.view = v;
+    else if (["home", "book", "my", "profile", "privacy", "terms"].concat(ADMIN.filter((x) => x !== "abooking")).includes(v)) R.view = v;
     else R.view = "home";
   }
   // back-office screens fetch fresh data on their own: every 30 seconds, and whenever the tab comes back into view,

@@ -1024,3 +1024,20 @@ body[data-mode=adm]{background:#f6f5ee}
   .pub .hero-media .pebble { aspect-ratio: 3 / 4; max-height: 52vh; width: auto; max-width: 100%; margin: 0 auto; }
   .pub .hero-media img { object-position: 50% 55%; }
 }
+
+/* member profile form and policy pages */
+.pub .profile-form { max-width: 620px; display: grid; gap: 14px; }
+.pub .profile-form h2 { font-size: 1.15rem; margin: 10px 0 0; }
+.pub .tel-row { display: flex; align-items: stretch; }
+.pub .tel-row .tel-cc { display: flex; align-items: center; padding: 0 12px; border: 1px solid var(--line-2); border-right: 0; border-radius: 10px 0 0 10px; background: #f3f2ea; white-space: nowrap; }
+.pub .tel-row input { border-radius: 0 10px 10px 0; flex: 1; min-width: 0; }
+.pub .field input[type=date] { width: 100%; }
+.pub fieldset.field { border: 0; padding: 0; margin: 0; }
+.pub fieldset.field legend { padding: 0; margin-bottom: 8px; font-weight: 500; }
+.pub .radio-row { display: flex; flex-wrap: wrap; gap: 10px 22px; }
+.pub .radio { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+.pub .radio input { width: 18px; height: 18px; accent-color: #264006; }
+.pub .prose { max-width: 760px; }
+.pub .prose h2 { font-size: 1.2rem; margin: 28px 0 8px; }
+.pub .prose ul { margin: 0; padding-left: 1.2em; display: grid; gap: 6px; color: var(--ink-2); }
+.pub .prose p { color: var(--ink-2); }
