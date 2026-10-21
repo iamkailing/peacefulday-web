@@ -901,3 +901,23 @@ body[data-mode=adm]{background:#f6f5ee}
 .pub .hero-promo { display: inline-block; margin: -4px 0 18px; padding: 6px 12px; border-radius: 999px; background: var(--lemon, #fbdb00); color: #264006; font-weight: 600; font-size: .92rem; }
 .pub .price-promo { margin: 4px 0 12px; color: #264006; }
 .pub .price-promo b { display: inline-block; padding: 3px 10px; margin-right: 6px; border-radius: 999px; background: #264006; color: #fbdb00; }
+/* booking: day chips say "เต็ม"/"ปิด" in words instead of a grey dot */
+.pub .date[data-status="full"] .a, .pub .date[data-status="closed"] .a { width: auto; height: auto; border-radius: 0; background: none; font-size: .68rem; line-height: 1; color: var(--ink-2); margin-top: 5px; }
+.pub .date[data-status="full"] { background: #f1efe8; }
+.pub .date[data-status="full"] .n { color: var(--ink-2); }
+.pub .hint--top { margin: -4px 0 12px; }
+/* booking: people stepper with the live price */
+.pub .stepper { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.pub .stepper-btn { width: 48px; height: 48px; border-radius: 50%; border: 1px solid var(--line-2); background: var(--white); color: #264006; font-family: inherit; font-size: 1.6rem; font-weight: 400; line-height: 1; cursor: pointer; display: grid; place-items: center; }
+.pub .stepper-btn:hover:not([disabled]) { border-color: #264006; }
+.pub .stepper-btn[disabled] { opacity: .35; cursor: not-allowed; }
+.pub .stepper-btn:focus-visible { outline: 2px solid #264006; outline-offset: 2px; }
+.pub .stepper-val { min-width: 72px; text-align: center; font-size: 1rem; }
+.pub .stepper-val b { font: 400 2rem/1 var(--f-display); margin-right: 4px; }
+.pub .stepper-price { margin-left: auto; font-weight: 600; font-size: 1.15rem; color: #264006; }
+.pub .stepper-price small { display: inline-block; margin-left: 6px; padding: 2px 8px; border-radius: 999px; background: #fbdb00; color: #264006; font-size: .72rem; font-weight: 600; vertical-align: middle; }
+@media (max-width: 420px) { .pub .stepper-price { margin-left: 0; width: 100%; } }
+.pub .time span.until { color: var(--ink-2); }
+.pub .time[aria-pressed=true] span.low { color: #fbdb00; }
+.pub .time span.low { font-weight: 600; }
+.pub .time[aria-pressed=true] span.until { color: #e7eddb; }

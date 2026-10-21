@@ -405,7 +405,7 @@
   }
   const signedInLine = () => `<p class="signed-in">${P("เข้าสู่ระบบเป็น", "Signed in as")} <b>${esc(cust.email)}</b> · <a href="#" data-cust-out>${P("ออกจากระบบ", "Sign out")}</a></p>`;
 
-  // ---------- booking: people → day → time → details → confirm ----------
+  // ---------- booking: day → time → people → details → confirm ----------
   async function viewBook() {
     if (R.pre) { const [d, h] = R.pre.split("|"); BK.day = d; BK.hm = h; R.pre = ""; }
     if (cust && !BK.name && !BK.phone) {
@@ -415,13 +415,20 @@
     }
     const from = today(), days = Math.min(Number(C.horizon_days) + 1, 42);
     let avail = [];
-    try { avail = await rpc("availability", { p_from: from, p_days: days, p_people: BK.people }); } catch (e) { R.flashErr = errText(e); }
+    try { avail = await rpc("availability", { p_from: from, p_days: days, p_people: 1 }); } catch (e) { R.flashErr = errText(e); }
     const map = {}; avail.forEach((d) => (map[d.day] = d));
     const dayState = (k) => { const d = map[k]; if (!d || !d.slots.length) return "closed"; return d.slots.some((s) => s.ok) ? "open" : "full"; };
     const list = Array.from({ length: days }, (_, i) => addDays(from, i));
     if (!BK.day || dayState(BK.day) === "closed") BK.day = list.find((k) => dayState(k) === "open") || "";
     const slots = BK.day && map[BK.day] ? map[BK.day].slots : [];
     if (!slots.some((s) => s.hm === BK.hm && s.ok)) BK.hm = "";
+    // how many people this booking can take: the chosen session's free places, never more than the online group limit
+    const pick = slots.find((s) => s.hm === BK.hm);
+    const maxPeople = Math.max(1, Math.min(Number(C.max_group) || 8, pick ? pick.remaining : Number(C.max_group) || 8));
+    if (BK.people > maxPeople) BK.people = maxPeople;
+    if (BK.people < 1) BK.people = 1;
+    const endOf = (hm) => { const [h, m] = hm.split(":").map(Number); const t = h * 60 + m + Number(C.duration); return String(Math.floor(t / 60) % 24).padStart(2, "0") + ":" + String(t % 60).padStart(2, "0"); };
+    const slotNote = (s) => (s.remaining <= 0 ? P("เต็ม", "Full") : s.remaining <= 3 ? P(`เหลือ ${s.remaining} ที่`, `${s.remaining} left`) : P("ว่าง", "Open"));
     const total = priceFor(BK.people);
     const fe = BK.fieldErr;
     const field = (k, label, input) => `<div class="field${fe[k] ? " has-error" : ""}"><label for="f-${k}">${label}</label>${input}${fe[k] ? `<span class="err">${esc(fe[k])}</span>` : ""}</div>`;
@@ -431,17 +438,23 @@
   ${flashHTML()}${BK.err ? `<div class="alert alert--bad" role="alert">${ICON.alert}<p>${esc(BK.err)}</p></div>` : ""}
   <form class="book" id="book" novalidate>
     <div class="book-main">
-      <div class="step"><div class="step-title"><span class="num" aria-hidden="true"></span><h2>${P("มากี่คน", "How many people?")}</h2></div>
-        <div class="people-pick" role="group" aria-label="${P("จำนวนคน", "Number of people")}">${Array.from({ length: Number(C.max_group) }, (_, i) => i + 1).map((n) => `<button type="button" class="time" data-people="${n}" aria-pressed="${n === BK.people}"><b>${n}</b><span>${P("คน", n > 1 ? "people" : "person")}</span></button>`).join("")}</div>
-        <p class="hint">${P("เราจะแสดงเฉพาะรอบที่ยังว่างพอสำหรับกลุ่มของคุณ", "We only show sessions with room for your whole group.")}</p>
-      </div>
       <div class="step"><div class="step-title"><span class="num" aria-hidden="true"></span><h2>${P("เลือกวัน", "Choose a day")}</h2></div>
-        <div class="dates" role="group" aria-label="${P("วันที่", "Date")}">${list.map((k) => { const st = dayState(k); return `<button type="button" class="date" data-day="${k}" data-status="${st}" aria-pressed="${k === BK.day}"${st === "closed" ? " disabled" : ""} aria-label="${esc(dShort(k))}"><span class="w">${esc(wd(k))}</span><span class="n">${Number(k.slice(8))}</span><span class="m">${esc(mon(k))}</span><span class="a" aria-hidden="true"></span></button>`; }).join("")}</div>
+        <div class="dates" role="group" aria-label="${P("วันที่", "Date")}">${list.map((k) => { const st = dayState(k); return `<button type="button" class="date" data-day="${k}" data-status="${st}" aria-pressed="${k === BK.day}"${st === "closed" ? " disabled" : ""} aria-label="${esc(dShort(k))}"><span class="w">${esc(wd(k))}</span><span class="n">${Number(k.slice(8))}</span><span class="m">${esc(mon(k))}</span><span class="a" aria-hidden="true">${st === "closed" ? P("ปิด", "Closed") : st === "full" ? P("เต็ม", "Full") : ""}</span></button>`; }).join("")}</div>
       </div>
       <div class="step"><div class="step-title"><span class="num" aria-hidden="true"></span><h2>${P("เลือกเวลา", "Choose a time")}</h2></div>
-        ${!BK.day ? `<p class="state">${P("ช่วงนี้ไม่มีรอบที่ว่างพอสำหรับกลุ่มนี้ ลองลดจำนวนคนหรือโทรหาเรา", "No sessions have room for this group right now. Try fewer people or call us.")}</p>` :
-          !slots.some((s) => s.ok) ? `<p class="state">${P("วันนี้ไม่มีรอบที่ว่างพอสำหรับกลุ่มนี้ ลองวันอื่น", "No session that day has room for your group. Try another day.")}</p>` :
-          `<div class="times" role="group">${slots.map((s) => `<button type="button" class="time" data-hm="${s.hm}" aria-pressed="${s.hm === BK.hm}"${s.ok ? "" : " disabled"}><b>${s.hm}</b><span class="${s.remaining > 0 && s.remaining <= 2 ? "low" : ""}">${s.remaining > 0 ? P("ว่าง " + s.remaining, s.remaining + " left") : P("เต็ม", "Full")}</span></button>`).join("")}</div>`}
+        <p class="hint hint--top">${P(`อยู่ได้ ${C.duration / 60} ชั่วโมงนับจากเวลาที่เลือก`, `You can stay ${C.duration / 60} hours from your start time.`)}</p>
+        ${!BK.day ? `<p class="state">${P("ช่วงนี้รอบเต็มหมดแล้ว โทรหาเราได้เลย", "Every session is booked up right now. Please call us.")}</p>` :
+          !slots.some((s) => s.ok) ? `<p class="state">${P("วันนี้เต็มแล้ว ลองวันอื่น", "That day is full. Try another day.")}</p>` :
+          `<div class="times" role="group">${slots.map((s) => `<button type="button" class="time" data-hm="${s.hm}" aria-pressed="${s.hm === BK.hm}"${s.ok ? "" : " disabled"}><b>${s.hm}</b>${s.remaining <= 0 ? `<span>${P("เต็ม", "Full")}</span>` : `<span class="until">${P("ถึง " + endOf(s.hm), "until " + endOf(s.hm))}</span>${s.remaining <= 3 ? `<span class="low">${slotNote(s)}</span>` : ""}`}</button>`).join("")}</div>`}
+      </div>
+      <div class="step"><div class="step-title"><span class="num" aria-hidden="true"></span><h2>${P("มากี่คน", "How many people?")}</h2></div>
+        <div class="stepper" role="group" aria-label="${P("จำนวนคน", "Number of people")}">
+          <button type="button" class="stepper-btn" data-pp="-1" aria-label="${P("ลดจำนวนคน", "Fewer people")}"${BK.people <= 1 ? " disabled" : ""}>−</button>
+          <output class="stepper-val" aria-live="polite"><b>${BK.people}</b> ${P("คน", BK.people > 1 ? "people" : "person")}</output>
+          <button type="button" class="stepper-btn" data-pp="1" aria-label="${P("เพิ่มจำนวนคน", "More people")}"${BK.people >= maxPeople ? " disabled" : ""}>+</button>
+          <span class="stepper-price">${baht(total)}${pairOn() && BK.people >= 2 ? ` <small>${P("ราคาโปร 2 คน", "2-person deal")}</small>` : ""}</span>
+        </div>
+        <p class="hint">${pick && pick.remaining < (Number(C.max_group) || 8) ? P(`รอบ ${BK.hm} รับได้อีก ${pick.remaining} คน`, `The ${BK.hm} session has room for ${pick.remaining} more.`) : pairOn() ? P(`มา 2 คนจ่าย ${baht(C.pair_price)} มากกว่า ${C.max_group} คนหรืออยากเหมารอบ โทรหาเรา`, `Two people pay ${baht(C.pair_price)}. More than ${C.max_group}, or a private session? Call us.`) : P(`มากกว่า ${C.max_group} คนหรืออยากเหมารอบ โทรหาเรา`, `More than ${C.max_group}, or a private session? Call us.`)}</p>
       </div>
       <div class="step"><div class="step-title"><span class="num" aria-hidden="true"></span><h2>${P("ข้อมูลผู้จอง", "Your details")}</h2></div>
         ${!cust ? loginPanel(P("เข้าสู่ระบบก่อนจอง ครั้งแรกกด สมัครใหม่ ใช้อีเมลและตั้งรหัสผ่าน", "Sign in to book. First time? Choose New account and set a password.")) : `${signedInLine()}
@@ -472,7 +485,7 @@
     return pubLayout(main, { paybar: true, after: `<div class="paybar"><div class="tot"><small>${BK.people} ${P("คน", "people")}${BK.hm ? " · " + BK.hm : ""}</small><b>${baht(total)}</b></div><button class="btn btn--primary" type="submit" form="book"${R.busy ? " disabled" : ""}>${P("ยืนยันการจอง", "Confirm booking")}</button></div>` });
   }
   function bindBook() {
-    $$("[data-people]").forEach((b) => b.addEventListener("click", () => { BK.people = Number(b.dataset.people); BK.err = ""; render(); }));
+    $$("[data-pp]").forEach((b) => b.addEventListener("click", () => { BK.people += Number(b.dataset.pp); BK.err = ""; render(); }));
     $$(".date").forEach((b) => b.addEventListener("click", () => { BK.day = b.dataset.day; BK.hm = ""; BK.err = ""; render(); }));
     $$("[data-hm]").forEach((b) => b.addEventListener("click", () => { BK.hm = b.dataset.hm; BK.err = ""; render(); }));
     $$("[data-bk]").forEach((i) => i.addEventListener("input", () => { BK[i.dataset.bk] = i.value; }));
