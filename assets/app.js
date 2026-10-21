@@ -176,6 +176,18 @@
   const priceLine = (n) => (pairOn() && n >= 2 ? `${P("โปร 2 คน", "2-person deal")} ${baht(C.pair_price)}${Math.floor(n / 2) > 1 ? ` × ${Math.floor(n / 2)}` : ""}${n % 2 ? ` + ${baht(C.price)}` : ""}` : `${baht(C.price)} × ${n}`);
   const promoText = () => P(`โปร มา 2 คน ${baht(C.pair_price)} (ปกติ ${baht(C.price * 2)})`, `Come as two for ${baht(C.pair_price)} (usually ${baht(C.price * 2)})`);
   const endHM = (hm) => { const [h, m] = hm.split(":").map(Number), t = h * 60 + m + Number(C.duration || 120); return String(Math.floor(t / 60) % 24).padStart(2, "0") + ":" + String(t % 60).padStart(2, "0"); };
+  // gallery: [file, small width, Thai caption, English caption, Thai alt, English alt]; the first one runs full width
+  const GALLERY = [
+    ["night", 800, "ยามค่ำ", "At night", "อ่างไม้ใส่น้ำแข็งใต้ร่มลายเหลืองและไฟประดับยามค่ำ", "Ice-filled wooden tubs under yellow-striped umbrellas and string lights at night"],
+    ["sauna", 640, "Sauna", "Sauna", "ห้องซาวน่าไม้ประตูกระจก มีเก้าอี้ผ้าใบลายเหลืองข้างใน", "The wooden sauna with a glass door and yellow-striped deck chairs inside"],
+    ["icebath", 640, "Ice Bath", "Ice Bath", "อ่างไม้สองอ่างในสวนใต้ร่มลายเหลือง", "Two wooden tubs in the garden under a yellow-striped umbrella"],
+    ["tubs-path", 640, "อ่างไม้ในสวน", "Tubs in the garden", "อ่างไม้เรียงกันข้างทางเดินหินในสวน", "Wooden tubs beside a stone path in the garden"],
+    ["white-tub", 640, "อ่างใต้ร่มไม้", "Under the leaves", "อ่างสีขาวใต้ใบไม้เขียวในสวน", "A white tub under green leaves in the garden"],
+    ["garden", 640, "สวน", "Garden", "สนามหญ้าและทางเดินในสวนใต้ร่มลายเหลือง", "The lawn and stepping stones under a yellow-striped umbrella"],
+    ["garden-path", 640, "ทางเดินในสวน", "Garden path", "ทางเดินหินบนสนามหญ้าในสวน", "Stepping stones across the lawn in the garden"],
+    ["seat", 640, "มุมพัก", "Rest corner", "มุมนั่งพักในสวนใต้ร่มลายเหลืองของ Peaceful Day", "A seat in the garden under a yellow-striped umbrella at Peaceful Day"],
+    ["lounge", 640, "ห้องนั่งเล่น", "Lounge", "ห้องนั่งเล่นในร้าน มีโคมไม้ไผ่และโซฟาหนัง", "The indoor lounge with bamboo lamps and a leather sofa"],
+  ];
   const BK = { people: 2, day: "", hm: "", name: "", phone: "", email: "", note: "", agree: false, health: false, err: "", fieldErr: {} };
   let ME = null; // signed-in staff member
 
@@ -279,13 +291,8 @@
 </div></section>
 
 <section class="section section--tint" id="experience" aria-labelledby="exp-title"><div class="wrap">
-  <div class="section-head"><p class="eyebrow"><span></span>${P("บรรยากาศจริง", "The place")}</p><h2 id="exp-title">${P("อ่างน้ำเย็น ซาวน่า และสวน", "Cold tubs, sauna and garden")}</h2></div>
-  <div class="trio trio--four">
-    <figure class="wide"><img src="${IMG("night.jpg")}" srcset="${IMG("night-800.jpg")} 800w, ${IMG("night.jpg")} 1448w" sizes="92vw" width="1448" height="1086" alt="${P("อ่างไม้ใส่น้ำแข็งใต้ร่มลายเหลืองและไฟประดับยามค่ำ", "Ice-filled wooden tubs under yellow-striped umbrellas and string lights at night")}" loading="lazy"><figcaption>${P("ยามค่ำ", "At night")}</figcaption></figure>
-    <figure><img src="${IMG("icebath.jpg")}" srcset="${IMG("icebath-640.jpg")} 640w, ${IMG("icebath.jpg")} 1000w" sizes="(min-width: 760px) 30vw, 92vw" width="1000" height="1500" alt="${P("อ่างไม้สองอ่างในสวนใต้ร่มลายเหลือง", "Two wooden tubs in the garden under a yellow-striped umbrella")}" loading="lazy"><figcaption>Ice Bath</figcaption></figure>
-    <figure><img src="${IMG("garden.jpg")}" srcset="${IMG("garden-640.jpg")} 640w, ${IMG("garden.jpg")} 1000w" sizes="(min-width: 760px) 30vw, 92vw" width="1000" height="1500" alt="${P("สนามหญ้าและทางเดินในสวนใต้ร่มลายเหลือง", "The lawn and stepping stones under a yellow-striped umbrella")}" loading="lazy"><figcaption>${P("สวน", "Garden")}</figcaption></figure>
-    <figure><img src="${IMG("seat.jpg")}" srcset="${IMG("seat-640.jpg")} 640w, ${IMG("seat.jpg")} 1000w" sizes="(min-width: 760px) 30vw, 92vw" width="1000" height="1500" alt="${P("มุมนั่งพักในสวนใต้ร่มลายเหลืองของ Peaceful Day", "A seat in the garden under a yellow-striped umbrella at Peaceful Day")}" loading="lazy"><figcaption>${P("มุมพัก", "Rest corner")}</figcaption></figure>
-  </div>
+  <div class="section-head"><p class="eyebrow"><span></span>${P("บรรยากาศจริง", "The place")}</p><h2 id="exp-title">${P('อ่างน้ำเย็น <span class="nw">ซาวน่า</span> และสวน', "Cold tubs, sauna and garden")}</h2></div>
+  <div class="trio trio--gallery">${GALLERY.map(([f, w, th, en, ath, aen], i) => `<figure${i === 0 ? ' class="wide"' : ""}><img src="${IMG(f + ".jpg")}" srcset="${IMG(f + "-" + w + ".jpg")} ${w}w, ${IMG(f + ".jpg")} ${i === 0 ? 1448 : 1000}w" sizes="${i === 0 ? "92vw" : "(min-width: 980px) 23vw, (min-width: 560px) 46vw, 92vw"}" alt="${P(ath, aen)}" loading="lazy"><figcaption>${P(th, en)}</figcaption></figure>`).join("")}</div>
 </div></section>
 
 <section class="section" id="first" aria-labelledby="first-title"><div class="wrap">

@@ -985,11 +985,12 @@ body[data-mode=adm]{background:#f6f5ee}
 /* real photos (Oct 2026): two gallery photos, hero framed on the seat and table */
 .pub .hero-media img { object-position: 50% 62%; }
 .pub .trio img { aspect-ratio: 4/5; object-position: 50% 60%; }
-.pub .trio--four .wide img { aspect-ratio: 4/3; object-position: 50% 55%; }
-@media (min-width: 760px) {
-  .pub .trio--four { grid-template-columns: repeat(3, 1fr); }
-  .pub .trio--four .wide { grid-column: 1 / -1; }
-  .pub .trio--four .wide img { aspect-ratio: 21/9; }
-}
+.pub .trio--gallery { grid-template-columns: 1fr 1fr; gap: 10px; }
+.pub .trio--gallery .wide { grid-column: 1 / -1; }
+.pub .trio--gallery .wide img { aspect-ratio: 4/3; object-position: 50% 55%; }
+@media (min-width: 560px) { .pub .trio--gallery .wide img { aspect-ratio: 16/9; } }
+@media (min-width: 980px) { .pub .trio--gallery { grid-template-columns: repeat(4, 1fr); gap: 14px; } .pub .trio--gallery .wide img { aspect-ratio: 21/9; } }
+@media (max-width: 559px) { .pub .trio--gallery figcaption { left: 8px; bottom: 8px; font-size: .74rem; padding: 3px 9px; } }
 /* dry-ice fog canvas over the hero photo (drawn in app.js) */
 .pub .pebble .fog { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 2; pointer-events: none; }
+.pub .nw { white-space: nowrap; }
