@@ -265,7 +265,7 @@
       ${next.length ? `<ul class="chips">${next.map((s) => `<li><a class="chip" href="#book" data-book="${s.day}|${s.hm}"><span>${esc(rel(s.day))}</span><b>${s.hm}</b><em>${P("ว่าง " + s.remaining + " ที่", s.remaining + " spots")}</em></a></li>`).join("")}<li><a class="chip chip--more" href="#book" data-go="book">${P("ดูวันอื่น", "More days")}</a></li></ul>` : `<p class="muted">${P("ตอนนี้ยังไม่มีรอบว่างในสัปดาห์นี้ ลองดูวันถัดไปในหน้าจอง", "No open sessions this week. Try later dates on the booking page.")}</p>`}
     </div>
   </div>
-  <div class="hero-media"><div class="pebble"><img src="${IMG("hero.jpg")}" srcset="${IMG("hero-800.jpg")} 800w, ${IMG("hero.jpg")} 1108w" sizes="(min-width: 900px) 46vw, 92vw" width="1108" height="1477" alt="${P("อ่างไม้ใส่น้ำแข็งกับมะนาวในสวนของ Peaceful Day", "A wooden tub filled with ice and two lemons in the Peaceful Day garden")}" fetchpriority="high"><span class="mist" aria-hidden="true"><i></i><i></i><i></i></span></div></div>
+  <div class="hero-media"><div class="pebble"><img src="${IMG("hero.jpg")}" srcset="${IMG("hero-800.jpg")} 800w, ${IMG("hero.jpg")} 1108w" sizes="(min-width: 900px) 46vw, 92vw" width="1108" height="1477" alt="${P("อ่างไม้ใส่น้ำแข็งกับมะนาวในสวนของ Peaceful Day", "A wooden tub filled with ice and two lemons in the Peaceful Day garden")}" fetchpriority="high"><canvas class="fog" aria-hidden="true"></canvas></div></div>
 </div></section>
 
 <section class="section" id="included" aria-labelledby="inc-title"><div class="wrap">
@@ -977,6 +977,82 @@
     }));
   }
 
+  // ---------- dry-ice fog over the hero photo ----------
+  // Soft fog puffs drawn on a canvas: some curl just above the ice, most spill over the front rim and roll down the tub
+  // to pool at the bottom, the way real dry-ice fog sinks. Positions follow the ice in the photo as the crop changes.
+  // Stops when the photo is off screen or the tab is hidden; shows one still frame for people who prefer less motion.
+  const ICE = { cx: 0.47, cy: 0.605, rx: 0.40, ry: 0.105, rim: 0.665, focusY: 0.62 }; // ice surface in hero.jpg, as fractions of the photo
+  let fogStop = null;
+  function startFog() {
+    if (fogStop) { fogStop(); fogStop = null; }
+    const cv = document.querySelector(".hero-media .fog"), img = document.querySelector(".hero-media img");
+    if (!cv || !img || !cv.getContext) return;
+    const ctx = cv.getContext("2d");
+    const still = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    // one soft, slightly lumpy puff, drawn once and reused for every particle
+    const sprite = document.createElement("canvas"); sprite.width = sprite.height = 128;
+    const sc = sprite.getContext("2d");
+    for (let k = 0; k < 7; k++) {
+      const x = 64 + (Math.random() - 0.5) * 34, y = 64 + (Math.random() - 0.5) * 22, r = 30 + Math.random() * 26;
+      const g = sc.createRadialGradient(x, y, 0, x, y, r);
+      g.addColorStop(0, "rgba(255,255,255,0.30)"); g.addColorStop(0.5, "rgba(250,252,255,0.12)"); g.addColorStop(1, "rgba(255,255,255,0)");
+      sc.fillStyle = g; sc.beginPath(); sc.arc(x, y, r, 0, Math.PI * 2); sc.fill();
+    }
+    let W = 0, H = 0, dpr = 1, map = null;
+    function layout() {
+      const r = cv.getBoundingClientRect(); dpr = Math.min(window.devicePixelRatio || 1, 2);
+      W = r.width; H = r.height; cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+      const nw = img.naturalWidth || 1108, nh = img.naturalHeight || 1477, s = Math.max(W / nw, H / nh);
+      const ox = (W - nw * s) * 0.5, oy = (H - nh * s) * ICE.focusY;
+      map = { cx: ox + ICE.cx * nw * s, cy: oy + ICE.cy * nh * s, rx: ICE.rx * nw * s, ry: ICE.ry * nh * s, rim: oy + ICE.rim * nh * s, u: nw * s };
+    }
+    const parts = [], MAX = W => (W < 420 ? 48 : 84);
+    function spawn(kind) {
+      const a = Math.random() * Math.PI * 2, d = Math.sqrt(Math.random());
+      const u = map.u;
+      if (kind === "spill") { // leaves from the front half of the rim and rolls down
+        const t = (Math.random() * 0.9 + 0.05) * Math.PI;
+        const x = map.cx + Math.cos(t) * map.rx * 0.95, y = map.rim + Math.sin(t) * map.ry * 0.25;
+        return { k: kind, x, y, vx: Math.cos(t) * u * 0.012, vy: u * (0.004 + Math.random() * 0.006), s: u * (0.10 + Math.random() * 0.08), g: u * 0.00045, a: 0, life: 0, max: 7 + Math.random() * 5, peak: 0.32 + Math.random() * 0.28 };
+      }
+      const x = map.cx + Math.cos(a) * map.rx * d * 0.92, y = map.cy + Math.sin(a) * map.ry * d * 0.9;
+      if (kind === "wisp") return { k: kind, x, y, vx: (Math.random() - 0.5) * u * 0.01, vy: -u * (0.012 + Math.random() * 0.012), s: u * (0.07 + Math.random() * 0.06), g: 0, a: 0, life: 0, max: 5 + Math.random() * 3, peak: 0.32 + Math.random() * 0.25 };
+      return { k: "bed", x, y, vx: (Math.random() - 0.5) * u * 0.02, vy: -u * Math.random() * 0.004, s: u * (0.09 + Math.random() * 0.07), g: 0, a: 0, life: 0, max: 6 + Math.random() * 5, peak: 0.14 + Math.random() * 0.16 };
+    }
+    function step(p, dt) {
+      p.life += dt;
+      p.vy += p.g * dt * 60;
+      p.x += p.vx * dt; p.y += p.vy * dt;
+      if (p.k === "spill" && p.y > H - p.s * 0.35) { p.y = H - p.s * 0.35; p.vy *= -0.05; p.vx *= 1.002; } // pool and spread along the ground
+      p.s *= 1 + dt * (p.k === "spill" ? 0.12 : 0.08);
+      const t = p.life / p.max; p.a = p.peak * Math.sin(Math.PI * Math.min(1, t)); // fade in, then out
+    }
+    function draw() {
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
+      for (const p of parts) { if (p.a <= 0.005) continue; ctx.globalAlpha = p.a; ctx.drawImage(sprite, p.x - p.s, p.y - p.s * 0.75, p.s * 2, p.s * 1.5); }
+      ctx.globalAlpha = 1;
+    }
+    function seed() { parts.length = 0; const n = MAX(W); for (let i = 0; i < n; i++) { const p = spawn(i % 5 < 2 ? "spill" : i % 5 < 4 ? "wisp" : "bed"); const warm = Math.random() * p.max; for (let t = 0; t < warm; t += 0.1) step(p, 0.1); parts.push(p); } }
+    layout(); seed();
+    if (still) { draw(); return; }
+    let raf = 0, last = 0, onScreen = true;
+    function frame(now) {
+      raf = 0;
+      const dt = Math.min(0.05, (now - (last || now)) / 1000); last = now;
+      for (let i = 0; i < parts.length; i++) { const p = parts[i]; step(p, dt); if (p.life >= p.max) parts[i] = spawn(p.k); }
+      draw();
+      if (onScreen && !document.hidden) raf = requestAnimationFrame(frame);
+    }
+    const go = () => { if (!raf && onScreen && !document.hidden) { last = 0; raf = requestAnimationFrame(frame); } };
+    const io = "IntersectionObserver" in window ? new IntersectionObserver((e) => { onScreen = e[0].isIntersecting; go(); }) : null;
+    if (io) io.observe(cv);
+    const vis = () => go(), rs = () => { layout(); };
+    document.addEventListener("visibilitychange", vis); window.addEventListener("resize", rs);
+    if (!img.complete) img.addEventListener("load", () => { layout(); seed(); }, { once: true });
+    go();
+    fogStop = () => { if (raf) cancelAnimationFrame(raf); raf = 0; onScreen = false; if (io) io.disconnect(); document.removeEventListener("visibilitychange", vis); window.removeEventListener("resize", rs); };
+  }
+
   // ---------- render ----------
   let renderSeq = 0;
   async function render() {
@@ -1005,6 +1081,7 @@
     if (seq !== renderSeq) return; // a newer screen was requested meanwhile
     app.innerHTML = html;
     bindCommon();
+    if ($(".hero-media .fog")) startFog(); else if (fogStop) { fogStop(); fogStop = null; }
     const binders = { queue: bindQueue, book: bindBook, booking: bindBooking, my: bindMy, aday: bindDay, abooking: bindAdminBooking, anew: bindNew, asearch: bindSearch, asettings: bindSettings, ateam: bindTeam, apassword: bindPassword };
     if (isAdm && !$(".adm .shell") && !$(".q-page")) bindLogin(); else if (binders[R.view]) binders[R.view]();
     if (R.anchor) { const a = document.getElementById(R.anchor); R.anchor = ""; if (a) a.scrollIntoView(); }
