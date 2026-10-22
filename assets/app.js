@@ -302,9 +302,11 @@
     if (!closed.length) return P(`เปิดทุกวัน ${first}–${end} น.`, `Open daily ${first}–${end}`);
     return P(`เปิด ${first}–${end} น. หยุดทุก${closed.map((d) => "วัน" + thDays[d]).join(" และ")}`, `Open ${first}–${end}, closed on ${closed.map((d) => enDays[d] + "s").join(", ")}`);
   }
+  // how to reach the team for things done by hand (cancelling after paying): phone, and LINE when it is set
+  const contactTH = () => `โทร ${C.phone}${C.line ? ` หรือทักไลน์ ${C.line}` : ""}`, contactEN = () => `call ${C.phone}${C.line ? ` or message us on LINE (${C.line})` : ""}`;
   const policyLine = () => P(
-    `ชำระเงินภายใน ${C.hold_min || 15} นาทีหลังจอง เลื่อนรอบได้เองก่อนเวลาเริ่ม ${C.cancel_hours} ชั่วโมง (${C.max_moves} ครั้ง) ถ้าชำระแล้วต้องการยกเลิก หรือเลยกำหนดเลื่อน กรุณาโทร ${C.phone}`,
-    `Pay within ${C.hold_min || 15} minutes of booking. Move your booking yourself up to ${C.cancel_hours} hours before it starts (${C.max_moves} time${C.max_moves > 1 ? "s" : ""}). To cancel after paying, or after that deadline, please call ${C.phone}.`);
+    `ชำระเงินภายใน ${C.hold_min || 15} นาทีหลังจอง เลื่อนรอบได้เองก่อนเวลาเริ่ม ${C.cancel_hours} ชั่วโมง (${C.max_moves} ครั้ง) ถ้าชำระแล้วต้องการยกเลิก หรือเลยกำหนดเลื่อน กรุณา${contactTH()}`,
+    `Pay within ${C.hold_min || 15} minutes of booking. Move your booking yourself up to ${C.cancel_hours} hours before it starts (${C.max_moves} time${C.max_moves > 1 ? "s" : ""}). To cancel after paying, or after that deadline, please ${contactEN()}.`);
 
   // ---------- public layout ----------
   function pubLayout(main, opts) {
@@ -716,7 +718,7 @@
       <button class="btn btn--primary mt-m" type="button" data-move-go${R.moveHm ? "" : " disabled"}>${P("ยืนยันเวลาใหม่", "Confirm new time")}</button>` : ""}
       <p class="muted"><small>${P(`เลื่อนได้ ${C.max_moves} ครั้ง ก่อนเวลาเริ่ม ${C.cancel_hours} ชั่วโมง`, `Reschedule up to ${C.max_moves} times, at least ${C.cancel_hours} hours before the start.`)}</small></p></div></details>` : ""}
     ${b.can_cancel ? `<details><summary>${P("ยกเลิกการจอง", "Cancel booking")}</summary><div class="inner"><p>${P("ยกเลิกแล้วที่นั่งจะเปิดให้คนอื่นจองทันที", "Your places will be released for others straight away.")}</p><button class="btn btn--danger" type="button" data-cancel data-confirm="${P("กดอีกครั้งเพื่อยืนยันการยกเลิก", "Tap again to confirm")}">${P("ยกเลิกการจองนี้", "Cancel this booking")}</button></div></details>` : ""}
-    ${!b.can_cancel && (b.pay === "paid" || b.pay === "review") ? `<p class="muted small">${esc((b.pay === "review" ? P("ส่งสลิปแล้ว ถ้าต้องการยกเลิก กรุณาโทร ", "Slip sent. To cancel, please call ") : P("ชำระเงินแล้ว ถ้าต้องการยกเลิก กรุณาโทร ", "Already paid. To cancel, please call ")) + C.phone)}</p>` : ""}
+    ${!b.can_cancel && (b.pay === "paid" || b.pay === "review") ? `<p class="muted small">${esc((b.pay === "review" ? P("ส่งสลิปแล้ว ถ้าต้องการยกเลิก กรุณา" + contactTH(), "Slip sent. To cancel, please " + contactEN() + ".") : P("ชำระเงินแล้ว ถ้าต้องการยกเลิก กรุณา" + contactTH() + " ทีมงานจะดูแลเรื่องยกเลิกให้", "Already paid. To cancel, please " + contactEN() + " and our team will take care of it.")))}</p>` : ""}
     ${!b.can_move && b.moves >= Number(C.max_moves) && new Date(b.cutoff) > new Date() ? `<p class="muted small">${esc(P(`เลื่อนรอบครบ ${C.max_moves} ครั้งแล้ว ถ้าต้องเปลี่ยนอีก กรุณาโทร `, `You've used all ${C.max_moves} reschedule(s). To change again, please call `) + C.phone)}</p>` : ""}
     ${!b.can_move && !b.can_cancel && !(b.moves >= Number(C.max_moves) && new Date(b.cutoff) > new Date()) ? `<p class="note-box">${esc(P("เลยกำหนดเปลี่ยนแปลงออนไลน์แล้ว กรุณาโทร ", "It's past the online change deadline. Please call ") + C.phone)}</p>` : ""}
   </div>` : ""}
@@ -873,7 +875,7 @@
         ["การจองยืนยันเมื่อทีมงานตรวจสลิปแล้ว", "Your booking is confirmed once our team has checked the slip."]]],
       ["เลื่อนและยกเลิก", "Moving and cancelling", [
         [`เลื่อนได้เองที่หน้า "การจองของฉัน" ก่อนเวลาเริ่มอย่างน้อย ${hrs} ชั่วโมง (เลื่อนได้ ${moves} ครั้งต่อการจอง)`, `Move your booking yourself under "My bookings" up to ${hrs} hours before your session (up to ${moves} move${moves > 1 ? "s" : ""} per booking).`],
-        [`ถ้าชำระเงินแล้วต้องการยกเลิก กรุณาโทร ${esc(C.phone)}`, `To cancel after paying, please call ${esc(C.phone)}.`],
+        [`ถ้าชำระเงินแล้วต้องการยกเลิก ยกเลิกเองในเว็บไม่ได้ กรุณา${esc(contactTH())} ทีมงานจะดูแลเรื่องยกเลิกให้`, `Once paid, a booking can't be cancelled on the website. Please ${esc(contactEN())} and our team will take care of it.`],
         [`หลังจากนั้น กรุณาโทร ${esc(C.phone)} ทีมงานจะช่วยดูให้ตามรอบที่ยังว่าง`, `After that, please call ${esc(C.phone)} and our team will help if there is space.`],
         ["ร้านอาจปิดรอบหรือปิดร้านในบางกรณี เช่น สภาพอากาศหรือการซ่อมบำรุง ถ้ากระทบการจองของคุณ ทีมงานจะติดต่อเพื่อเลื่อนให้", "We may close a session or the shop, for example for weather or maintenance. If this affects your booking, our team will contact you to move it."]]],
       ["สุขภาพและความปลอดภัย", "Health and safety", [
@@ -1444,7 +1446,8 @@
     return `<div class="pp-head"><b>ผู้ใช้บริการ ${b.people} คน</b><span class="muted small">ลงทะเบียนแล้ว ${L.length} · เช็คอินแล้ว ${here}</span></div>
       ${L.length ? `<ul class="pp-list">${L.map((x) => `<li class="${x.checked_at ? "is-in" : ""}"><img src="${esc(x.signature)}" alt="ลายเซ็นของ ${esc(x.name)}"><span class="pp-who"><b>${esc(x.name)}</b><span class="muted small">${esc(fmtPhone(x.phone))}${x.email ? " · " + esc(x.email) : ""} · ${x.visits ? "มาแล้ว " + x.visits + " ครั้ง" : "ครั้งแรก"}</span>${x.came_with ? `<span class="q-note">${esc(x.came_with)}</span>` : ""}</span>${x.checked_at ? `<span class="pp-ok">✓ มาแล้ว ${esc(hhmm(x.checked_at))}</span><button class="btn btn--small btn--ghost" type="button" data-pout="${x.id}" data-confirm="กดอีกครั้งเพื่อยกเลิก">ยกเลิก</button>` : `<button class="btn btn--small btn--primary" type="button" data-pin="${x.id}">เช็คอิน</button><button class="btn btn--small btn--ghost" type="button" data-punlink="${x.id}" data-confirm="กดอีกครั้ง: เอาออกจากคิวนี้" title="ลงผิดคน หรือลงซ้ำ">เอาออก</button>`}</li>`).join("")}</ul>` : ""}
       ${missing ? `<div class="pp-add"><p class="pp-missing"><span>ยังไม่ลงทะเบียน <b>${missing}</b> คน</span></p>
-        <div class="btn-row"><button class="btn btn--small btn--primary" type="button" data-ho="${ho}">ลงทะเบียนในเครื่องนี้</button><button class="btn btn--small" type="button" data-pqr="${esc(b.ref)}" aria-expanded="${R.pQr === b.ref}">QR ให้ลูกค้าสแกน</button><button class="btn btn--small btn--ghost" type="button" data-copy="${esc(regAbs)}">คัดลอกลิงก์ส่งลูกค้า</button></div>
+        ${!L.some((x) => (b.phone && x.phone === b.phone) || (b.email && (x.email || "").toLowerCase() === b.email.toLowerCase())) ? `<p class="pp-booker"><button class="btn btn--small btn--primary" type="button" data-hobooker="${esc(JSON.stringify({ ref: b.ref, wt: b.wtoken, name: b.name, phone: b.phone, email: b.email || "" }))}">ลงทะเบียนผู้จอง: ${esc(b.name)}</button> <span class="muted small">ใช้ข้อมูลจากการจอง/ประวัติ ไม่ต้องกรอกใหม่ ให้ลูกค้าแค่ตรวจ ติ๊ก และเซ็น</span></p>` : ""}
+        <div class="btn-row"><button class="btn btn--small${L.length ? " btn--primary" : ""}" type="button" data-ho="${ho}">ลงทะเบียนเพื่อนในเครื่องนี้</button><button class="btn btn--small" type="button" data-pqr="${esc(b.ref)}" aria-expanded="${R.pQr === b.ref}">QR ให้ลูกค้าสแกน</button><button class="btn btn--small btn--ghost" type="button" data-copy="${esc(regAbs)}">คัดลอกลิงก์ส่งลูกค้า</button></div>
         ${R.pQr === b.ref ? `<div class="pp-qr">${qrSVG(regAbs)}<p class="small muted">ให้ลูกค้าสแกนด้วยมือถือตัวเองแล้วลงทะเบียน ชื่อจะขึ้นในรายการนี้ (กด “ลงทะเบียน” ที่คิวอีกครั้งเพื่ออัปเดต)</p></div>` : ""}
         <form class="pp-find" data-ppfind="${esc(b.ref)}"><label for="pp-q" class="small"><b>เคยมาแล้ว?</b> ค้นหาชื่อหรือเบอร์ แล้วให้ลูกค้าแค่ติ๊กและเซ็น</label><div class="code-row"><input id="pp-q" type="search" autocomplete="off" value="${esc(R.ppFor === b.ref ? R.ppQ || "" : "")}"><button class="btn btn--small" type="submit">ค้นหา</button></div></form>
         ${found ? (found.length ? `<ul class="w-found">${found.map((x, i) => `<li><button type="button" data-pppick="${i}|${ho}"><b>${esc((x.first_name + " " + x.last_name).trim())}</b><span>${esc(fmtPhone(x.phone))}${x.email ? " · " + esc(x.email) : ""}${x.member ? " · สมาชิก" : ""}${x.visits ? " · มาแล้ว " + x.visits + " ครั้ง" : ""}</span></button></li>`).join("")}</ul>` : '<p class="muted small">ไม่พบ ให้ลงทะเบียนใหม่</p>') : ""}
@@ -1574,6 +1577,13 @@
       startHandover(ref, wt, { first_name: x.first_name || "", last_name: x.last_name || "", email: x.email || "", phone: x.phone || "" });
     }));
     bindHandoverButtons();
+    // the person who booked: their details come from the booking, or from their last registration with that phone
+    $$("[data-hobooker]").forEach((btn) => btn.addEventListener("click", async () => {
+      const d = JSON.parse(btn.dataset.hobooker), parts = (d.name || "").trim().split(/\s+/);
+      let pre = { first_name: parts[0] || "", last_name: parts.slice(1).join(" "), phone: d.phone || "", email: d.email || "" };
+      if (d.phone) { try { const hit = (await rpc("staff_people_search", { p_q: d.phone }, true)).find((x) => x.phone === d.phone); if (hit) pre = { first_name: hit.first_name || pre.first_name, last_name: hit.last_name || pre.last_name, phone: hit.phone, email: hit.email || pre.email }; } catch (e) { /* use the booking's details */ } }
+      startHandover(d.ref, d.wt, pre);
+    }));
     $$("[data-qgroup]").forEach((b) => b.addEventListener("click", () => act(async () => { await rpc("staff_checkin", { p_ref: b.dataset.qgroup, p_method: "" }, true); return "เช็คอินทั้งกลุ่มแล้ว (ไม่ได้ลงทะเบียนรายคน)"; })));
     const qq = $("[data-qqr]"); if (qq) qq.addEventListener("click", () => { R.qQr = !R.qQr; render(); });
     $$("[data-qslip]").forEach((b) => b.addEventListener("click", () => { R.qSlip = R.qSlip === b.dataset.qslip ? "" : b.dataset.qslip; R.qOpen = R.qCheckin = ""; render(); }));

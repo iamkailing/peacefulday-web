@@ -1318,6 +1318,16 @@ begin
       from customers c
       where (lower(c.first_name || ' ' || c.last_name) like '%' || q || '%' or lower(c.email) like '%' || q || '%' or (length(digits) >= 4 and c.phone like '%' || digits || '%'))
         and not exists (select 1 from waivers w2 where lower(w2.email) = lower(c.email)))
+    union all
+    -- people who only booked (LINE, phone, walk-in): name and phone from their latest booking, so they don't type it again
+    (select distinct on (k.phone) jsonb_build_object('first_name', split_part(btrim(k.name), ' ', 1),
+          'last_name', btrim(substr(btrim(k.name), length(split_part(btrim(k.name), ' ', 1)) + 1)), 'email', k.email, 'phone', k.phone,
+          'last', k.created_at, 'visits', 0, 'booked', true), k.created_at
+      from bookings k
+      where k.phone <> '' and (lower(k.name) like '%' || q || '%' or (length(digits) >= 4 and k.phone like '%' || digits || '%'))
+        and not exists (select 1 from waivers w3 where w3.phone = k.phone and w3.removed_from is null)
+        and not exists (select 1 from customers c3 where c3.phone = k.phone)
+      order by k.phone, k.created_at desc)
     order by 2 desc limit 20) t), '[]'::jsonb);
 end $$;
 
