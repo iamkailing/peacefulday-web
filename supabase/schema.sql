@@ -148,6 +148,9 @@ alter table slips add column if not exists result text not null default '';
 alter table slips add column if not exists img_hash text not null default '';
 alter table slips add column if not exists checked_at timestamptz;
 alter table slips add column if not exists used boolean not null default false;   -- this slip paid its booking
+alter table slips add column if not exists claimed_at timestamptz;  -- a check is running now (two checks of one slip never run at once)
+alter table slips add column if not exists tries int not null default 0;
+alter table slips add column if not exists retry_at timestamptz;    -- the checker was busy or the bank needed a few minutes: look again then
 drop index if exists slips_ref;
 create index if not exists slips_ref on slips (slip_ref) where slip_ref is not null;
 create index if not exists slips_hash on slips (img_hash);
@@ -186,6 +189,8 @@ alter table waivers add column if not exists came_with text not null default '';
 alter table waivers add column if not exists marketing_consent boolean not null default false;
 alter table waivers add column if not exists checked_at timestamptz;              -- the team confirmed this person arrived
 alter table waivers add column if not exists checked_by text not null default '';
+-- registered on a booking by mistake and taken off it by the team; the record itself is kept
+alter table waivers add column if not exists removed_from bigint;
 create index if not exists waivers_email on waivers (lower(email));
 create index if not exists waivers_phone on waivers (phone);
 alter table waivers enable row level security;
@@ -329,6 +334,7 @@ begin
     'status', b.status, 'pay', b.pay, 'method', b.method, 'total', b.total, 'channel', b.channel,
     'moves', b.moves, 'created_at', b.created_at, 'checked_at', b.checked_at,
     'hold_until', b.hold_until, 'slip_at', b.slip_at, 'wtoken', b.wtoken,
+    'signed', (select count(*) from waivers w where w.booking_id = b.id),
     'slip_note', (select s.result from slips s where s.booking_id = b.id order by s.created_at desc limit 1),
     -- after paying, cancelling goes through the team (refunds are handled by hand)
     'can_cancel', b.status = 'confirmed' and now() < cut and b.pay in ('await','due','none'),
@@ -339,7 +345,6 @@ end $$;
 -- what the team sees for a booking: the customer view plus the team's own fields
 create or replace function _staff_json(b bookings) returns jsonb language sql stable set search_path = public as $$
   select _booking_json(b) || jsonb_build_object('staff_note', b.staff_note, 'package', b.package, 'paid_at', b.paid_at, 'cancelled_at', b.cancelled_at,
-    'signed', (select count(*) from waivers w where w.booking_id = b.id),
     'arrived', (select count(*) from waivers w where w.booking_id = b.id and w.checked_at is not null)) $$;
 
 -- the signed-in customer (email confirmed with a one-time code); anonymous visitors cannot book
@@ -468,7 +473,8 @@ declare em text := _customer_email(); v_phone text := _phone(p->>'phone');
   v_first text := btrim(coalesce(p->>'first_name', '')); v_last text := btrim(coalesce(p->>'last_name', ''));
   v_birth date; v_gender text := coalesce(p->>'gender', ''); v_mkt boolean := coalesce((p->>'marketing_consent')::boolean, false);
 begin
-  if length(v_first) < 1 or length(v_first) > 60 or length(v_last) > 60 then raise exception 'name'; end if;
+  if length(v_first) < 1 or length(v_first) > 60 then raise exception 'name'; end if;
+  if length(v_last) < 1 or length(v_last) > 60 then raise exception 'last_name'; end if;
   if v_phone !~ '^0[2-9][0-9]{7,8}$' then raise exception 'phone'; end if;
   if v_gender not in ('', 'male', 'female', 'unspecified') then v_gender := ''; end if;
   if coalesce(p->>'birth_date', '') <> '' then
@@ -495,17 +501,28 @@ end $$;
 -- the customer attaches a transfer slip; a booking released for late payment gets its places back if they are still free
 create or replace function submit_slip(p_ref text, p_token uuid, p_image text) returns jsonb
 language plpgsql volatile security definer set search_path = public as $$
-declare b bookings; s record;
+declare b bookings; s record; v_b64 text; v_head bytea;
 begin
-  if p_image is null or length(p_image) > 800000 or p_image !~ '^data:image/(jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$' then raise exception 'slip'; end if;
+  if p_image is null or length(p_image) > 800000 or length(p_image) < 2000 or p_image !~ '^data:image/(jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$' then raise exception 'slip'; end if;
+  -- a real picture: whole base64 blocks, starting with a JPEG, PNG or WebP header
+  v_b64 := substr(p_image, position(',' in p_image) + 1);
+  if length(v_b64) % 4 <> 0 then raise exception 'slip'; end if;
+  v_head := decode(left(v_b64, 16), 'base64');
+  if not (substr(v_head, 1, 3) = '\xffd8ff'::bytea or substr(v_head, 1, 8) = '\x89504e470d0a1a0a'::bytea
+          or (substr(v_head, 1, 4) = '\x52494646'::bytea and substr(v_head, 9, 4) = '\x57454250'::bytea)) then raise exception 'slip'; end if;
   perform _expire_holds();
   select * into b from bookings where ref = upper(p_ref) and token = p_token for update;
   if not found then raise exception 'notfound'; end if;
   if (select count(*) from slips where booking_id = b.id) >= 5 then raise exception 'slip_many'; end if;
-  if b.user_id is not null and (select count(*) from slips q join bookings x on x.id = q.booking_id
-      where x.user_id = b.user_id and q.created_at > now() - interval '1 hour') >= 8 then raise exception 'slip_many'; end if;
+  if b.user_id is not null and ((select count(*) from slips q join bookings x on x.id = q.booking_id
+      where x.user_id = b.user_id and q.created_at > now() - interval '1 hour') >= 8
+      or (select count(*) from slips q join bookings x on x.id = q.booking_id
+      where x.user_id = b.user_id and q.created_at > now() - interval '1 day') >= 20) then raise exception 'slip_many'; end if;
   if b.status = 'cancelled' and b.pay = 'expired' then
     if _start(b.day, b.hm) <= now() then raise exception 'hold_expired'; end if;
+    -- getting a released booking back counts against the same limit as new unpaid bookings
+    if b.user_id is not null and (select count(*) from bookings x where x.user_id = b.user_id and x.id <> b.id and x.status = 'confirmed'
+          and (x.pay = 'review' or (x.pay = 'await' and x.hold_until > now()))) >= 2 then raise exception 'unpaid_many'; end if;
     perform pg_advisory_xact_lock(hashtext('slot:' || b.day || ' ' || b.hm));
     select * into s from _slots(b.day) x where x.hm = b.hm;
     if not found or s.blocked or s.capacity - s.used < b.people then raise exception 'hold_expired'; end if;
@@ -577,13 +594,19 @@ begin
     h := nullif(current_setting('request.headers', true), '')::json;
     v_src := btrim(coalesce(nullif(h->>'cf-connecting-ip', ''), nullif(h->>'x-real-ip', ''), nullif(split_part(coalesce(h->>'x-forwarded-for', ''), ',', 1), ''), ''));
     -- IPv6 addresses are grouped by their first four blocks (one home or phone network)
-    if position(':' in v_src) > 0 then v_src := array_to_string((string_to_array(v_src, ':'))[1:4], ':'); end if;
+    if position(':' in v_src) > 0 then v_src := host(network(set_masklen(v_src::inet, 64))); end if;
     if v_src <> '' then v_src := md5('pfd:' || v_src); end if;
   exception when others then v_src := '';
   end;
+  -- a booking takes as many registrations as it has people (the same person signing twice doesn't count again)
   if coalesce(p->>'ref', '') <> '' and coalesce(p->>'token', '') ~ '^[0-9a-fA-F-]{36}$' then
-    select * into b from bookings where ref = upper(btrim(p->>'ref')) and wtoken = (p->>'token')::uuid;
-    if found and (select count(*) from waivers where booking_id = b.id) >= b.people + 3 then raise exception 'waiver_full'; end if;
+    select * into b from bookings where ref = upper(btrim(p->>'ref')) and wtoken = (p->>'token')::uuid
+       and status in ('confirmed','checked_in') for update;
+    if found then
+      if exists (select 1 from waivers where booking_id = b.id and lower(email) = v_email
+                  and lower(btrim(first_name)) = lower(v_first) and lower(btrim(last_name)) = lower(v_last)) then raise exception 'waiver_dup'; end if;
+      if (select count(*) from waivers where booking_id = b.id) >= b.people then raise exception 'waiver_full'; end if;
+    end if;
   end if;
   -- the shop's own tablet (a signed-in team member) is never limited; others are, so nobody can flood the database
   if _role() is null then
@@ -711,14 +734,19 @@ begin
   return _staff_json(b);
 end $$;
 
+-- the whole group at once; everyone who registered is checked in with it
 create or replace function staff_checkin(p_ref text, p_method text) returns jsonb
 language plpgsql volatile security definer set search_path = public as $$
-declare b bookings;
+declare b bookings; r text := _need('staff');
 begin
-  perform _need('staff');
   select * into b from bookings where ref = upper(p_ref) for update;
   if not found then raise exception 'notfound'; end if;
   if b.status <> 'confirmed' then raise exception 'change_closed'; end if;
+  if b.day > (_now_bkk())::date then raise exception 'not_today'; end if;
+  -- people check in one by one after registering; letting a group in without everyone registered is for managers
+  if r = 'staff' and (select count(*) from waivers where booking_id = b.id) < b.people then raise exception 'forbidden'; end if;
+  update waivers set checked_at = now(), checked_by = coalesce((select email from staff where user_id = auth.uid()), '')
+   where booking_id = b.id and checked_at is null;
   if coalesce(p_method, '') = 'transfer' and b.pay in ('review','await') then perform _use_slip(b.id); end if;
   update bookings set status = 'checked_in', checked_at = now(),
          pay = case when pay in ('due','await','review') and coalesce(p_method, '') <> '' then 'paid' when pay = 'await' then 'due' else pay end,
@@ -749,7 +777,8 @@ create or replace function staff_slip(p_ref text) returns jsonb
 language plpgsql stable security definer set search_path = public as $$
 begin
   perform _need('staff');
-  return (select jsonb_build_object('data', s.data, 'at', s.created_at, 'result', s.result) from slips s join bookings b on b.id = s.booking_id
+  return (select jsonb_build_object('data', s.data, 'at', s.created_at, 'result', s.result, 'slip_ref', s.slip_ref, 'amount', s.amount,
+                 'checking', s.checked_at is null or s.retry_at is not null) from slips s join bookings b on b.id = s.booking_id
           where b.ref = upper(btrim(p_ref)) order by s.created_at desc limit 1);
 end $$;
 
@@ -777,6 +806,7 @@ begin
      where id = b.id returning * into b;
   elsif p_status = 'confirmed' and b.status in ('checked_in','no_show') then
     update bookings set status = 'confirmed', checked_at = null, pay = case when pay = 'await' then 'due' else pay end, hold_until = null where id = b.id returning * into b;
+    update waivers set checked_at = null, checked_by = '' where booking_id = b.id;  -- undoing the visit undoes each person's check-in too
   else raise exception 'change_closed';
   end if;
   perform _log(b.ref, 'เปลี่ยนสถานะเป็น ' || p_status);
@@ -907,7 +937,9 @@ begin
   if length(coalesce(n->>'phone', '')) > 40 or length(coalesce(n->>'line', '')) > 60 or length(coalesce(n->>'address_th', '')) > 300
      or length(coalesce(n->>'address_en', '')) > 300 or length(coalesce(n->>'bank_name', '')) > 60 or length(coalesce(n->>'bank_account', '')) > 40
      or length(coalesce(n->>'bank_holder', '')) > 120 then raise exception 'settings'; end if;
+  if jsonb_typeof(n->'times') is distinct from 'array' or jsonb_typeof(n->'closed') is distinct from 'array' then raise exception 'settings'; end if;
   if exists (select 1 from jsonb_array_elements_text(n->'times') t where t.value !~ '^([01][0-9]|2[0-3]):[0-5][0-9]$') then raise exception 'settings'; end if;
+  if exists (select 1 from jsonb_array_elements(n->'closed') e where jsonb_typeof(e) <> 'number' or e::text !~ '^[0-6]$') then raise exception 'settings'; end if;
   if coalesce((n->>'hold_min')::int, 15) not between 5 and 1440 then raise exception 'settings'; end if;
   if (n->>'promptpay') <> '' and length(n->>'promptpay') not in (10, 13, 15) then raise exception 'promptpay'; end if;
   update settings set data = n where id = 1;
@@ -969,18 +1001,20 @@ begin
 end $$;
 
 -- ---------- automatic slip check (called only by the pfd-slip edge function, which holds the EasySlip key) ----------
--- the newest slip of a booking, only while it has not been checked yet, with what the slip must match
+-- the newest slip of a booking, only while it has not been checked yet, with what the slip must match.
+-- Taking it marks it as being checked, so two calls at the same moment don't both ask EasySlip.
 drop function if exists slip_check_get(text, uuid);
 create or replace function slip_check_get(p_ref text, p_token uuid) returns jsonb
-language plpgsql stable security definer set search_path = public as $$
+language plpgsql volatile security definer set search_path = public as $$
 declare b bookings; sl slips; c jsonb := _cfg();
 begin
   select * into b from bookings where ref = upper(p_ref) and token = p_token;
   if not found then return null; end if;
-  select * into sl from slips where booking_id = b.id order by created_at desc, id desc limit 1;
-  if not found or sl.checked_at is not null then return null; end if;
+  select * into sl from slips where booking_id = b.id order by created_at desc, id desc limit 1 for update;
+  if not found or sl.checked_at is not null or sl.claimed_at > now() - interval '2 minutes' then return null; end if;
+  update slips set claimed_at = now(), tries = tries + 1 where id = sl.id;
   return jsonb_build_object('slip_id', sl.id, 'data', sl.data, 'pay', b.pay, 'status', b.status, 'total', b.total,
-    'created_at', b.created_at, 'auto', coalesce((c->>'slip_auto')::boolean, true),
+    'created_at', b.created_at, 'auto', coalesce((c->>'slip_auto')::boolean, true), 'used', sl.used, 'has_ref', sl.slip_ref is not null,
     'holder', coalesce(c->>'bank_holder', ''), 'account', coalesce(c->>'bank_account', ''), 'promptpay', coalesce(c->>'promptpay', ''));
 end $$;
 
@@ -991,21 +1025,35 @@ create or replace function _slip_reused(p_slip slips) returns boolean language s
 
 -- the result of the check: ok = paid straight away; a clear problem sends the booking back to "awaiting payment"
 -- so the customer can send the right slip; anything unsure (service down, receiver not clear) waits for the team
-create or replace function slip_check_set(p_slip_id bigint, p_result text, p_ref text, p_amount numeric, p_note text) returns jsonb
+-- p_retry: the checker was busy (or Bangkok Bank's first 5 minutes), so the slip is looked at again a few minutes later
+drop function if exists slip_check_set(bigint, text, text, numeric, text);
+create or replace function slip_check_set(p_slip_id bigint, p_result text, p_ref text, p_amount numeric, p_note text, p_retry boolean default false) returns jsonb
 language plpgsql volatile security definer set search_path = public as $$
-declare sl slips; b bookings;
+declare sl slips; b bookings; v_ref text := nullif(btrim(coalesce(p_ref, '')), '');
 begin
+  if v_ref is not null then perform pg_advisory_xact_lock(hashtext('slipref:' || v_ref)); end if;
   select * into sl from slips where id = p_slip_id for update;
   if not found then raise exception 'notfound'; end if;
-  -- only the newest slip of the booking, and only once (a late answer about an older slip changes nothing)
+  -- only the newest slip of the booking, and only once: a late answer changes nothing, but the bank reference it read
+  -- is kept, so the same transfer can't pay for another booking later
   if sl.checked_at is not null or exists (select 1 from slips x where x.booking_id = sl.booking_id and (x.created_at, x.id) > (sl.created_at, sl.id)) then
+    update slips set slip_ref = coalesce(slip_ref, v_ref), amount = coalesce(amount, p_amount), claimed_at = null where id = sl.id;
+    if sl.used and v_ref is not null and exists (select 1 from slips x where x.used and x.id <> sl.id and x.booking_id <> sl.booking_id and x.slip_ref = v_ref) then
+      insert into audit (who, ref, action) select 'ระบบ', k.ref, 'ตรวจพบภายหลัง: สลิปนี้เคยใช้ชำระการจองอื่นแล้ว เช็คยอดในแอปธนาคาร' from bookings k where k.id = sl.booking_id;
+    end if;
     return jsonb_build_object('status', 'stale');
   end if;
-  if coalesce(p_ref, '') <> '' then perform pg_advisory_xact_lock(hashtext('slipref:' || p_ref)); end if;
-  update slips set checked_at = now(), result = left(coalesce(p_note, ''), 300), amount = p_amount, slip_ref = nullif(p_ref, '')
+  update slips set checked_at = now(), claimed_at = null, result = left(coalesce(p_note, ''), 300), amount = p_amount, slip_ref = v_ref,
+         retry_at = case when p_result = 'manual' and coalesce(p_retry, false) and v_ref is null and tries < 4 then now() + interval '6 minutes' end
    where id = sl.id returning * into sl;
   select * into b from bookings where id = sl.booking_id for update;
-  if b.pay <> 'review' or b.status <> 'confirmed' then return jsonb_build_object('status', b.pay); end if;
+  if b.pay <> 'review' or b.status <> 'confirmed' then
+    -- the team already confirmed this transfer by hand: if the reference turns out to have paid another booking, say so in its history
+    if sl.used and v_ref is not null and exists (select 1 from slips x where x.used and x.id <> sl.id and x.booking_id <> sl.booking_id and x.slip_ref = v_ref) then
+      insert into audit (who, ref, action) values ('ระบบ', b.ref, 'ตรวจพบภายหลัง: สลิปนี้เคยใช้ชำระการจองอื่นแล้ว เช็คยอดในแอปธนาคาร');
+    end if;
+    return jsonb_build_object('status', b.pay);
+  end if;
   if p_result = 'ok' and _slip_reused(sl) then
     p_result := 'bad'; p_note := 'สลิปนี้เคยใช้ชำระการจองอื่นไปแล้ว';
     update slips set result = p_note where id = sl.id;
@@ -1021,7 +1069,9 @@ begin
     insert into audit (who, ref, action) values ('ระบบ', b.ref, 'สลิปไม่ผ่าน: ' || coalesce(p_note, ''));
     return jsonb_build_object('status', 'rejected', 'reason', p_note);
   end if;
-  insert into audit (who, ref, action) values ('ระบบ', b.ref, 'ตรวจสลิปอัตโนมัติไม่ได้ รอทีมงานตรวจ: ' || coalesce(p_note, ''));
+  if sl.tries <= 1 or sl.retry_at is null then  -- one line in the history, not one per automatic retry
+    insert into audit (who, ref, action) values ('ระบบ', b.ref, 'ตรวจสลิปอัตโนมัติไม่ได้ ' || case when sl.retry_at is not null then 'จะลองตรวจอีกครั้งใน 6 นาที' else 'รอทีมงานตรวจ' end || ': ' || coalesce(p_note, ''));
+  end if;
   return jsonb_build_object('status', 'manual', 'reason', p_note);
 end $$;
 
@@ -1085,10 +1135,11 @@ begin
   return jsonb_build_object(
     'owners', coalesce((select jsonb_agg(email) from staff where role = 'owner'), '[]'::jsonb),
     'customers', coalesce((select jsonb_agg(to_jsonb(c) order by c.created_at) from customers c), '[]'::jsonb),
-    'bookings', coalesce((select jsonb_agg(to_jsonb(b) - 'token' order by b.day, b.hm, b.created_at) from bookings b), '[]'::jsonb),
+    'bookings', coalesce((select jsonb_agg(to_jsonb(b) - 'token' - 'wtoken' order by b.day, b.hm, b.created_at) from bookings b), '[]'::jsonb),
     'waivers', coalesce((select jsonb_agg(jsonb_build_object('first_name', w.first_name, 'last_name', w.last_name, 'email', w.email, 'phone', w.phone,
                            'came_with', w.came_with, 'marketing_consent', w.marketing_consent, 'services', w.services, 'ref', b.ref,
-                           'signed_at', w.signed_at, 'checked_at', w.checked_at, 'checked_by', w.checked_by, 'version', w.version) order by w.id)
+                           'signed_at', w.signed_at, 'checked_at', w.checked_at, 'checked_by', w.checked_by, 'version', w.version,
+                           'removed_from', (select x.ref from bookings x where x.id = w.removed_from)) order by w.id)
                          from waivers w left join bookings b on b.id = w.booking_id), '[]'::jsonb),
     'slips', coalesce((select jsonb_agg(jsonb_build_object('ref', b.ref, 'slip_ref', s.slip_ref, 'amount', s.amount, 'result', s.result, 'created_at', s.created_at) order by s.id)
                        from slips s join bookings b on b.id = s.booking_id), '[]'::jsonb));
@@ -1143,7 +1194,7 @@ begin
         min(w.signed_at) as first_seen, count(*) as registrations, count(*) filter (where w.checked_at is not null) as visits,
         (max(coalesce(w.checked_at, w.signed_at)) at time zone 'Asia/Bangkok')::date as last_day
       from waivers w
-      where w.email <> '' and not exists (select 1 from customers c where lower(c.email) = lower(w.email))
+      where w.email <> '' and w.removed_from is null and not exists (select 1 from customers c where lower(c.email) = lower(w.email))
       group by lower(w.email), lower(w.first_name), lower(w.last_name)) g
     where q = '' or lower(g.first_name || ' ' || g.last_name) like '%' || q || '%' or g.em like '%' || q || '%'
        or (length(digits) >= 4 and g.phone like '%' || digits || '%')
@@ -1168,17 +1219,82 @@ declare w waivers; b bookings; who text;
 begin
   perform _need('staff');
   who := coalesce((select email from staff where user_id = auth.uid()), '');
-  update waivers set checked_at = case when p_on then coalesce(checked_at, now()) end, checked_by = case when p_on then who else '' end
-   where id = p_id returning * into w;
+  select * into w from waivers where id = p_id for update;
   if not found then raise exception 'notfound'; end if;
   select * into b from bookings where id = w.booking_id for update;
-  if found then
+  if p_on and b.id is not null then
+    if b.day > (_now_bkk())::date then raise exception 'not_today'; end if;  -- a visit is counted on its own day, never ahead
+    if b.status not in ('confirmed','checked_in') then raise exception 'change_closed'; end if;
+  end if;
+  update waivers set checked_at = case when p_on then coalesce(checked_at, now()) end, checked_by = case when p_on then who else '' end
+   where id = p_id returning * into w;
+  if b.id is not null then
     if p_on and b.status = 'confirmed' then
       update bookings set status = 'checked_in', checked_at = now(), pay = case when pay = 'await' then 'due' else pay end, hold_until = null where id = b.id;
+    end if;
+    -- undoing the last person who arrived puts the booking back to "booked"
+    if not p_on and b.status = 'checked_in' and not exists (select 1 from waivers where booking_id = b.id and checked_at is not null) then
+      update bookings set status = 'confirmed', checked_at = null where id = b.id;
     end if;
     perform _log(b.ref, case when p_on then 'เช็คอิน ' else 'ยกเลิกเช็คอิน ' end || w.name);
   end if;
   return jsonb_build_object('id', w.id, 'checked_at', w.checked_at);
+end $$;
+
+-- someone registered on the wrong booking (or twice): the team takes them off it, which frees the place for the right person.
+-- The signed record is kept, just no longer attached to the booking.
+create or replace function staff_unlink_person(p_id bigint) returns jsonb
+language plpgsql volatile security definer set search_path = public as $$
+declare w waivers; b bookings;
+begin
+  perform _need('staff');
+  select * into w from waivers where id = p_id for update;
+  if not found or w.booking_id is null then raise exception 'notfound'; end if;
+  if w.checked_at is not null then raise exception 'person_in'; end if;
+  select * into b from bookings where id = w.booking_id;
+  update waivers set removed_from = booking_id, booking_id = null where id = w.id;
+  perform _log(b.ref, 'เอาออกจากรายชื่อผู้ใช้บริการ: ' || w.name);
+  return jsonb_build_object('id', w.id);
+end $$;
+
+-- the customers the shop already knows (members, people who registered, past bookings), for filling in a new booking
+create or replace function staff_find_customer(p_q text) returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare q text := lower(btrim(coalesce(p_q, ''))); d text := regexp_replace(coalesce(p_q, ''), '\D', '', 'g');
+begin
+  perform _need('staff');
+  if d like '66%' and length(d) = 11 then d := '0' || substr(d, 3); end if;
+  if length(d) < 4 then d := ''; end if;
+  if length(q) < 2 then return '[]'::jsonb; end if;
+  return coalesce((select jsonb_agg(jsonb_build_object('name', t.name, 'phone', t.phone, 'kind', t.kind, 'bookings', t.nb, 'visits', t.nv, 'last_day', t.last_day)
+      order by t.exact desc, t.starts desc, t.last_day desc nulls last, t.name)
+    from (
+      select u.name, u.phone, u.kind, (d <> '' and u.phone = d) as exact, (lower(u.name) like q || '%') as starts,
+        (select count(*) from bookings k where ((u.phone <> '' and k.phone = u.phone) or k.user_id = u.uid) and k.status <> 'cancelled') as nb,
+        greatest((select count(*) from bookings k where ((u.phone <> '' and k.phone = u.phone) or k.user_id = u.uid) and k.status = 'checked_in'),
+                 (select count(*) from waivers w where u.email <> '' and lower(w.email) = lower(u.email) and w.checked_at is not null)) as nv,
+        (select max(k.day) from bookings k where ((u.phone <> '' and k.phone = u.phone) or k.user_id = u.uid) and k.status <> 'cancelled') as last_day
+      from (
+        -- one row per person: a member first, then someone who registered, then a past booking with the same phone
+        select distinct on (s.key) s.* from (
+          select coalesce(nullif(c.phone, ''), lower(c.email)) as key, 1 as pri, c.updated_at as at,
+                 btrim(c.first_name || ' ' || c.last_name) as name, c.phone, c.email, 'member'::text as kind, c.user_id as uid
+            from customers c
+           where lower(c.first_name || ' ' || c.last_name) like '%' || q || '%' or (d <> '' and c.phone like '%' || d || '%')
+          union all
+          select coalesce(nullif(w.phone, ''), lower(w.email)), 2, w.signed_at, btrim(w.first_name || ' ' || w.last_name), w.phone, w.email, 'guest', null::uuid
+            from waivers w
+           where w.first_name <> '' and w.removed_from is null
+             and (lower(w.first_name || ' ' || w.last_name) like '%' || q || '%' or (d <> '' and w.phone like '%' || d || '%'))
+          union all
+          select k.phone, 3, k.created_at, k.name, k.phone, '', 'booking', null::uuid
+            from bookings k
+           where k.phone <> '' and (lower(k.name) like '%' || q || '%' or (d <> '' and k.phone like '%' || d || '%'))
+        ) s
+        order by s.key, s.pri, s.at desc
+      ) u
+      order by (d <> '' and u.phone = d) desc, (lower(u.name) like q || '%') desc, u.at desc
+      limit 8) t), '[]'::jsonb);
 end $$;
 
 -- people who registered before (members and friends), by name, phone or email, so they don't type it all again
@@ -1194,7 +1310,7 @@ begin
         jsonb_build_object('first_name', w.first_name, 'last_name', w.last_name, 'email', w.email, 'phone', w.phone, 'last', w.signed_at,
           'visits', (select count(*) from waivers z where z.checked_at is not null and lower(z.email) = lower(w.email))) as x, w.signed_at as at
       from waivers w
-      where w.email <> '' and (lower(w.first_name || ' ' || w.last_name) like '%' || q || '%' or lower(w.email) like '%' || q || '%'
+      where w.email <> '' and w.removed_from is null and (lower(w.first_name || ' ' || w.last_name) like '%' || q || '%' or lower(w.email) like '%' || q || '%'
          or (length(digits) >= 4 and w.phone like '%' || digits || '%'))
       order by lower(w.email), lower(w.first_name), lower(w.last_name), w.signed_at desc)
     union all
@@ -1214,7 +1330,7 @@ begin
       'signed_at', w.signed_at, 'ref', b.ref, 'lang', w.lang) order by w.signed_at)
     from waivers w left join bookings b on b.id = w.booking_id
     where (coalesce(p_ref, '') <> '' and b.ref = upper(btrim(p_ref)))
-       or (coalesce(p_ref, '') = '' and (w.signed_at at time zone 'Asia/Bangkok')::date = p_day)), '[]'::jsonb);
+       or (coalesce(p_ref, '') = '' and w.removed_from is null and (w.signed_at at time zone 'Asia/Bangkok')::date = p_day)), '[]'::jsonb);
 end $$;
 
 -- people booked per day, for the strip of days at the top of the queue page
@@ -1251,6 +1367,53 @@ begin
                    where b.day between p_from and p_to), '[]'::jsonb);
 end $$;
 
+-- ---------- jobs the database runs by itself (pg_cron, below) ----------
+-- slips the checker couldn't read yet (busy, or a Bangkok Bank slip in its first 5 minutes) are sent again, up to 4 tries;
+-- a slip the team already approved by hand is still read once, so its bank reference is on record
+create or replace function _slip_recheck() returns int language plpgsql volatile security definer set search_path = public as $$
+declare r record; n int := 0;
+begin
+  for r in
+    update slips s set checked_at = null, claimed_at = null, retry_at = null
+     where s.retry_at < now() and s.tries < 4 and s.slip_ref is null and s.created_at > now() - interval '1 day'
+       and not exists (select 1 from slips x where x.booking_id = s.booking_id and (x.created_at, x.id) > (s.created_at, s.id))
+       and exists (select 1 from bookings k where k.id = s.booking_id and ((k.pay = 'review' and k.status = 'confirmed') or s.used))
+    returning s.booking_id
+  loop
+    begin
+      perform net.http_post(url := 'https://tisybvfjejtdjtykowcb.supabase.co/functions/v1/pfd-slip',
+                            body := (select jsonb_build_object('ref', ref, 'token', token) from bookings where id = r.booking_id),
+                            headers := '{"Content-Type":"application/json"}'::jsonb, timeout_milliseconds := 20000);
+      n := n + 1;
+    exception when others then null;
+    end;
+  end loop;
+  return n;
+end $$;
+
+-- payment confirmations that did not go out are tried again (paid in the last two days); a send that stopped
+-- half-way (taken but never finished) is handed back after 30 minutes
+create or replace function _receipt_retry() returns int language plpgsql volatile security definer set search_path = public as $$
+declare r record; n int := 0;
+begin
+  update bookings b set receipt_sent_at = null
+   where b.pay = 'paid' and b.receipt_sent_at between now() - interval '2 days' and now() - interval '30 minutes'
+     and not exists (select 1 from audit a where a.ref = b.ref and a.action = 'ส่งอีเมลยืนยันการชำระเงินแล้ว');
+  for r in select b.ref from bookings b
+            where b.pay = 'paid' and b.receipt_sent_at is null and b.email <> '' and b.status in ('confirmed','checked_in')
+              and b.paid_at between now() - interval '2 days' and now() - interval '5 minutes'
+            limit 20
+  loop
+    begin
+      perform net.http_post(url := 'https://tisybvfjejtdjtykowcb.supabase.co/functions/v1/pfd-mail',
+                            body := jsonb_build_object('ref', r.ref), headers := '{"Content-Type":"application/json"}'::jsonb);
+      n := n + 1;
+    exception when others then null;
+    end;
+  end loop;
+  return n;
+end $$;
+
 -- ---------- who may call what ----------
 -- (after every function is defined: Supabase gives new functions to anon by default, so take everything back first)
 revoke execute on all functions in schema public from public, anon, authenticated;
@@ -1261,10 +1424,10 @@ grant execute on function staff_me(text), staff_day(date), staff_search(text), s
   staff_checkin(text, text), staff_take_payment(text, text), staff_set_status(text, text), staff_move(text, date, text, boolean),
   staff_note(text, text), staff_set_slot(date, text, boolean, int), staff_set_closed_day(date, boolean, text), staff_set_holiday(date, boolean, text), staff_closed_days(),
   staff_save_settings(jsonb), staff_overview(date), staff_days(date, int), staff_waiting(), staff_restore(text, boolean), staff_cancelled(), staff_slip(text), staff_slips(), staff_export(date, date), staff_team(), staff_invite(text, text, text), staff_remove(text) to authenticated;
-grant execute on function slip_check_get(text, uuid), slip_check_set(bigint, text, text, numeric, text),
+grant execute on function slip_check_get(text, uuid), slip_check_set(bigint, text, text, numeric, text, boolean),
   mail_receipt_get(text), mail_receipt_done(text, boolean), backup_data(text) to service_role;
 grant execute on function staff_customers(text), staff_waivers(text, date), staff_people(text), staff_checkin_person(bigint, boolean),
-  staff_people_search(text) to authenticated;
+  staff_people_search(text), staff_unlink_person(bigint), staff_find_customer(text) to authenticated;
 -- helpers run inside the functions above (which run as the owner), so nobody needs to call them directly
 
 -- ---------- background jobs (Supabase extensions; skipped quietly where they are not available) ----------
@@ -1278,12 +1441,8 @@ do $$ begin
             headers := '{"Content-Type":"application/json"}'::jsonb) $job$);
 exception when others then raise notice 'pg_cron not available'; end $$;
 do $$ begin
-  -- every 15 minutes: try again to send payment confirmations that did not go out (paid in the last two days)
-  perform cron.schedule('pfd-receipt-retry', '*/15 * * * *',
-    $job$ select net.http_post(url := 'https://tisybvfjejtdjtykowcb.supabase.co/functions/v1/pfd-mail',
-            body := jsonb_build_object('ref', b.ref), headers := '{"Content-Type":"application/json"}'::jsonb)
-          from public.bookings b
-          where b.pay = 'paid' and b.receipt_sent_at is null and b.email <> '' and b.status in ('confirmed','checked_in')
-            and b.paid_at between now() - interval '2 days' and now() - interval '5 minutes'
-          limit 20 $job$);
+  -- every 15 minutes: try again to send payment confirmations that did not go out
+  perform cron.schedule('pfd-receipt-retry', '*/15 * * * *', $job$ select public._receipt_retry() $job$);
+  -- every 5 minutes: look again at slips the checker couldn't read yet
+  perform cron.schedule('pfd-slip-recheck', '*/5 * * * *', $job$ select public._slip_recheck() $job$);
 exception when others then raise notice 'pg_cron not available'; end $$;

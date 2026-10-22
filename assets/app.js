@@ -5,6 +5,12 @@
   "use strict";
   const CFG = window.PFD_CONFIG;
   const app = document.getElementById("app");
+  // never run inside another site's frame (a hidden frame could trick someone into clicking back-office buttons)
+  if (window.top !== window.self) {
+    try { window.top.location.href = location.href; } catch (e) { /* the other site blocks it; the link below still works */ }
+    app.innerHTML = '<p style="padding:24px;font:16px sans-serif">เปิด <a href="https://peacefulday.co/" target="_top" rel="noopener">peacefulday.co</a></p>';
+    return;
+  }
 
   // ---------- helpers ----------
   const $ = (s, el = document) => el.querySelector(s);
@@ -72,14 +78,18 @@
     if (!r.ok) throw new Error(j.error_code || j.msg || j.error_description || j.message || "auth");
     return j;
   }
+  // links in emails sign people in; a link this browser asked for is used straight away, any other one asks first
+  const AUTH_SENT = "pfd-auth-sent";
+  const authSent = () => store.set(AUTH_SENT, Date.now());
   async function custSignIn(email, password) { keepCust(await authCall("token?grant_type=password", { email, password })); }
   async function custSignUp(email, password) {
+    authSent();
     const j = await authCall("signup?redirect_to=" + custBack(), { email, password });
     if (j.access_token) { keepCust(j); return true; } // email confirmation is off
     return false; // a confirmation email was sent
   }
-  async function custVerifyLink(email) { await authCall("otp?redirect_to=" + custBack(), { email, create_user: false }); }
-  async function custReset(email) { await authCall("recover?redirect_to=" + custBack(), { email }); }
+  async function custVerifyLink(email) { authSent(); await authCall("otp?redirect_to=" + custBack(), { email, create_user: false }); }
+  async function custReset(email) { authSent(); await authCall("recover?redirect_to=" + custBack(), { email }); }
   async function custSetPassword(password) {
     const r = await fetch(CFG.url + "/auth/v1/user", { method: "PUT", headers: Object.assign({ Authorization: "Bearer " + (await custToken()) }, H), body: JSON.stringify({ password }) });
     if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error_code || j.msg || j.message || "password"); }
@@ -114,12 +124,14 @@
     store.set(SESSION_KEY, session);
   }
   async function signUp(email, password) {
+    authSent();
     const r = await fetch(CFG.url + "/auth/v1/signup?redirect_to=" + encodeURIComponent(location.origin + location.pathname), { method: "POST", headers: { apikey: CFG.key, "Content-Type": "application/json" }, body: JSON.stringify(R.captcha ? { email, password, gotrue_meta_security: { captcha_token: R.captcha } } : { email, password }) });
     const j = await r.json();
     if (!r.ok) throw new Error(j.error_description || j.msg || j.message || "signup");
     return j;
   }
   async function resetPassword(email) {
+    authSent();
     await fetch(CFG.url + "/auth/v1/recover?redirect_to=" + encodeURIComponent(location.origin + location.pathname), { method: "POST", headers: { apikey: CFG.key, "Content-Type": "application/json" }, body: JSON.stringify(R.captcha ? { email, gotrue_meta_security: { captcha_token: R.captcha } } : { email }) });
   }
   async function setPassword(password) {
@@ -133,18 +145,27 @@
     if (h.includes("access_token=")) {
       const q = new URLSearchParams(h.slice(h.indexOf("#") + 1).replace(/^admin&?/, ""));
       const got = { access_token: q.get("access_token"), refresh_token: q.get("refresh_token"), expires_at: Date.now() + Number(q.get("expires_in") || 3600) * 1000, email: "" };
-      if (/(^|[?&])c=1/.test(location.search) || q.get("type") === "magiclink") {
-        // a customer opened the link in a confirmation or reset email
-        try { got.email = JSON.parse(atob(got.access_token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"))).email || ""; } catch (e) { /* unreadable token */ }
-        cust = got; store.set(CUST_KEY, got);
-        window.__pfdCustRecovery = q.get("type") === "recovery";
-        window.__pfdVerify = q.get("type") === "magiclink"; // the optional "confirm your email" link
-        history.replaceState(null, "", location.pathname + (window.__pfdCustRecovery ? "#my" : window.__pfdVerify ? "#profile" : "#book"));
-      } else {
-        session = got; store.set(SESSION_KEY, session);
-        window.__pfdRecovery = q.get("type") === "recovery";
-        history.replaceState(null, "", location.pathname + "#admin");
-      }
+      try { got.email = JSON.parse(decodeURIComponent(escape(atob(got.access_token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"))))).email || ""; } catch (e) { /* unreadable token */ }
+      const type = q.get("type") || "", forCust = /(^|[?&])c=1/.test(location.search) || type === "magiclink";
+      // late = applied after the "is this you?" screen, when the page state already exists
+      const apply = (late) => {
+        if (forCust) {
+          // a customer opened the link in a confirmation or reset email
+          cust = got; store.set(CUST_KEY, got);
+          window.__pfdCustRecovery = type === "recovery";
+          window.__pfdVerify = type === "magiclink"; // the optional "confirm your email" link
+          if (late) { R.custRecovery = window.__pfdCustRecovery; R.profile = undefined; }
+          history.replaceState(null, "", location.pathname + (window.__pfdCustRecovery ? "#my" : window.__pfdVerify ? "#profile" : "#book"));
+        } else {
+          session = got; store.set(SESSION_KEY, session);
+          window.__pfdRecovery = type === "recovery";
+          if (late) { R.recovery = window.__pfdRecovery; ME = null; }
+          history.replaceState(null, "", location.pathname + "#admin");
+        }
+      };
+      // someone could send a link that signs into *their* account; only a link this browser asked for in the last 3 days goes straight in
+      if (Date.now() - (Number(store.get(AUTH_SENT)) || 0) < 3 * 864e5) apply(false);
+      else { window.__pfdAuthHold = { email: got.email, apply }; history.replaceState(null, "", location.pathname + "#authok"); }
     }
   })();
 
@@ -158,7 +179,11 @@
     too_soon: ["รอบนี้ใกล้เวลาเริ่มเกินไปสำหรับการจองออนไลน์ โทรหาเราได้เลย", "That session starts too soon to book online. Please call us."],
     duplicate: ["คุณมีการจองรอบนี้อยู่แล้ว ดูได้ที่ “การจองของฉัน” ถ้าต้องการเพิ่มคน กรุณาโทรหาเรา", "You already have a booking in that session (see My bookings). To add people, please call us."],
     too_many: ["จองถี่เกินไป ลองใหม่อีกครั้งในอีกสักครู่ หรือโทรหาเรา", "Too many bookings in a short time. Please try again later or call us."],
-    unpaid_many: ["คุณมีการจองที่ยังไม่ได้ชำระอยู่ 2 รายการ ชำระหรือยกเลิกรายการเดิมที่หน้า “การจองของฉัน” ก่อน แล้วค่อยจองเพิ่ม", "You have 2 bookings waiting for payment. Pay for or cancel them under My bookings first."],
+    unpaid_many: ["คุณมีการจองที่รอชำระหรือรอตรวจสลิปอยู่ 2 รายการ ชำระรายการที่ค้าง หรือรอทีมงานตรวจสลิปให้เสร็จก่อน แล้วค่อยจองเพิ่ม (ดูที่ “การจองของฉัน”)", "You have 2 bookings waiting for payment or a slip check. Pay for them, or wait for our team to check your slip, then book again (see My bookings)."],
+    last_name: ["กรุณากรอกนามสกุล", "Please enter your last name."],
+    waiver_dup: ["คนนี้ลงทะเบียนในการจองนี้แล้ว ไม่ต้องลงซ้ำ", "This person is already registered on this booking."],
+    not_today: ["เช็คอินได้ในวันที่จองเท่านั้น", "Check-in is only possible on the day of the booking."],
+    person_in: ["คนนี้เช็คอินแล้ว กด “ยกเลิก” เช็คอินก่อน แล้วค่อยเอาออก", "This person has checked in. Undo the check-in first."],
     change_closed: ["เลยกำหนดเปลี่ยนแปลงออนไลน์แล้ว กรุณาโทรหาเรา", "It's past the online change deadline. Please call us."],
     notfound: ["ไม่พบการจองนี้", "We couldn't find that booking."],
     forbidden: ["ตำแหน่งของคุณทำรายการนี้ไม่ได้", "Your role can't do this."],
@@ -171,7 +196,7 @@
     agree: ["กรุณาติ๊กว่าได้อ่านและเข้าใจแล้ว", "Please tick to confirm you have read and understood."],
     any_phone: ["เบอร์โทรไม่ถูกต้อง (เบอร์ไทย 9–10 หลัก หรือเบอร์ต่างประเทศขึ้นต้นด้วย +)", "That phone number doesn't look right (Thai number, or + and country code)."],
     waiver_busy: ["ตอนนี้ลงทะเบียนออนไลน์แบบไม่มีการจองได้ไม่สะดวก กรุณาลงทะเบียนกับทีมงานที่เคาน์เตอร์", "Online registration without a booking is busy right now. Please register with our team at the counter."],
-    waiver_full: ["การจองนี้ลงทะเบียนครบแล้ว ถ้ามีคนเพิ่ม กรุณาแจ้งทีมงาน", "Everyone on this booking has registered. If someone was added, please tell our team."],
+    waiver_full: ["การจองนี้ลงทะเบียนครบตามจำนวนคนแล้ว ถ้ามีคนมาเพิ่ม แจ้งทีมงานที่ร้าน", "Everyone on this booking has registered. If someone else is joining, please tell our team at the shop."],
     slip_used: ["สลิปนี้เคยใช้ชำระการจองอื่นแล้ว ตรวจในแอปธนาคารก่อนยืนยัน", "This slip already paid for another booking. Check the bank app first."],
     signature: ["กรุณาลงลายมือชื่อในกรอบ", "Please sign in the box."],
     terms: ["กรุณายอมรับนโยบายความเป็นส่วนตัวก่อน", "Please accept the privacy policy first."],
@@ -284,7 +309,12 @@
   // ---------- public layout ----------
   function pubLayout(main, opts) {
     opts = opts || {};
-    const nav = [["home#experience", P("บรรยากาศ", "Our space")], ["book", P("ราคาและจอง", "Prices & booking")], ["home#first", P("มาครั้งแรก", "First visit")], ["home#visit", P("การเดินทาง", "Getting here")], ["my", P("การจองของฉัน", "My bookings")]];
+    // the team's device handed to a customer: no menus or links out, only the "ทีมงาน" hold-to-return control
+    if (opts.bare) return `<div class="pub pfd-home is-bare">
+<header class="site-header"><div class="wrap"><span class="brand">${LOGO}<span>Peaceful Day</span></span><div class="header-actions"><a class="lang" href="#" data-lang>${P("English", "ภาษาไทย")}</a></div></div></header>
+<main id="main">${main}</main>
+<footer class="ho-foot"><div class="wrap"><button class="ho-exit" type="button" data-hoexit aria-label="ทีมงาน: กดค้าง 2 วินาทีเพื่อกลับหน้าจองคิว"><span>ทีมงาน</span></button></div></footer></div>`;
+    const nav =[["home#experience", P("บรรยากาศ", "Our space")], ["book", P("ราคาและจอง", "Prices & booking")], ["home#first", P("มาครั้งแรก", "First visit")], ["home#visit", P("การเดินทาง", "Getting here")], ["my", P("การจองของฉัน", "My bookings")]];
     return `<div class="pub pfd-home${opts.paybar ? " has-paybar" : ""}">
 <a class="skip" href="#main">${P("ข้ามไปเนื้อหา", "Skip to content")}</a>
 <header class="site-header"><div class="wrap">
@@ -690,7 +720,8 @@
     ${!b.can_move && b.moves >= Number(C.max_moves) && new Date(b.cutoff) > new Date() ? `<p class="muted small">${esc(P(`เลื่อนรอบครบ ${C.max_moves} ครั้งแล้ว ถ้าต้องเปลี่ยนอีก กรุณาโทร `, `You've used all ${C.max_moves} reschedule(s). To change again, please call `) + C.phone)}</p>` : ""}
     ${!b.can_move && !b.can_cancel && !(b.moves >= Number(C.max_moves) && new Date(b.cutoff) > new Date()) ? `<p class="note-box">${esc(P("เลยกำหนดเปลี่ยนแปลงออนไลน์แล้ว กรุณาโทร ", "It's past the online change deadline. Please call ") + C.phone)}</p>` : ""}
   </div>` : ""}
-  ${live && !owe ? `<div class="note-box waiver-cta"><p><b>${P("ลงทะเบียนผู้ใช้บริการล่วงหน้า", "Register everyone ahead")}</b> ${P("ทุกคนในกลุ่ม รวมถึงเพื่อนที่มาด้วย ต้องกรอกชื่อ อีเมล เบอร์ และลงชื่อรับทราบความเสี่ยง ส่งลิงก์ให้เพื่อนทำในมือถือได้เลย ถึงร้านจะได้เข้าใช้ทันที", "Everyone in your group, including friends, gives their name, email and phone and signs the risk acknowledgment. Send friends the link; you'll go straight in when you arrive.")}</p><a class="btn btn--small btn--primary" href="#waiver/${esc(b.ref)}/${esc(b.wtoken)}">${P("ลงทะเบียน", "Register")}</a><button class="btn btn--small" type="button" data-copy="${esc(location.origin + location.pathname + "#waiver/" + b.ref + "/" + b.wtoken)}">${P("คัดลอกลิงก์ส่งให้เพื่อน", "Copy link for friends")}</button></div>` : ""}
+  ${live && !owe ? ((b.signed || 0) >= b.people ? `<div class="note-box waiver-cta is-done"><p>${ICON.ok} <b>${P(`ลงทะเบียนครบ ${b.people} คนแล้ว`, `All ${b.people} registered`)}</b> ${P("ถึงร้านเข้าใช้ได้เลย", "You can go straight in when you arrive.")}</p></div>`
+    : `<div class="note-box waiver-cta"><p><b>${P("ลงทะเบียนผู้ใช้บริการล่วงหน้า", "Register everyone ahead")}</b> ${P(`(ลงทะเบียนแล้ว ${b.signed || 0} จาก ${b.people} คน)`, `(${b.signed || 0} of ${b.people} done)`)} ${P("ทุกคนในกลุ่ม รวมถึงเพื่อนที่มาด้วย ต้องกรอกชื่อ อีเมล เบอร์ และลงชื่อรับทราบความเสี่ยง ส่งลิงก์ให้เพื่อนทำในมือถือได้เลย ถึงร้านจะได้เข้าใช้ทันที", "Everyone in your group, including friends, gives their name, email and phone and signs the risk acknowledgment. Send friends the link; you'll go straight in when you arrive.")}</p><a class="btn btn--small btn--primary" href="#waiver/${esc(b.ref)}/${esc(b.wtoken)}">${P("ลงทะเบียน", "Register")}</a><button class="btn btn--small" type="button" data-copy="${esc(location.origin + location.pathname + "#waiver/" + b.ref + "/" + b.wtoken)}">${P("คัดลอกลิงก์ส่งให้เพื่อน", "Copy link for friends")}</button></div>`) : ""}
   <p class="mt-m"><a class="btn" href="#book" data-go="book">${P("จองรอบอื่น", "Book another session")}</a></p>
 </div></section>`);
   }
@@ -718,7 +749,7 @@
   async function ensureProfile() {
     if (!cust) return true;
     if (R.profile === undefined) { try { R.profile = await rpc("my_profile", {}, "cust"); } catch (e) { if (e.code === "login" || /JWT/i.test(e.message)) custOut(); return true; } }
-    return !!R.profile;
+    return !!(R.profile && (R.profile.last_name || "").trim());
   }
   function toProfile(after) { R.afterProfile = after; R.view = "profile"; try { history.replaceState(null, "", "#profile"); } catch (e) { /* ignore */ } return viewProfile(); }
   async function viewProfile() {
@@ -727,11 +758,12 @@
       window.__pfdVerify = false;
       try { const pr = await rpc("verify_email", {}, "cust"); if (pr) { R.profile = pr; if (pr.email_verified) R.flash = P("ยืนยันอีเมลแล้ว ถ้าลืมรหัสผ่าน เราจะส่งลิงก์ตั้งรหัสใหม่ไปที่อีเมลนี้", "Email confirmed. If you forget your password, we'll send the reset link here."); } } catch (e) { /* not important enough to block the page */ }
     }
-    const pr = R.profile || {}, first = !R.profile, F = R.pf || (R.pf = { phone: (pr.phone || BK.phone || "").replace(/^0/, ""), first_name: pr.first_name || "", last_name: pr.last_name || "", birth_date: pr.birth_date || "", gender: pr.gender || "", marketing_consent: !!pr.marketing_consent });
+    // first = never filled in; short = a member from before the last name was required (they add it once, then carry on)
+    const pr = R.profile || {}, first = !R.profile, short = !first && !(pr.last_name || "").trim(), F = R.pf || (R.pf = { phone: (pr.phone || BK.phone || "").replace(/^0/, ""), first_name: pr.first_name || "", last_name: pr.last_name || "", birth_date: pr.birth_date || "", gender: pr.gender || "", marketing_consent: !!pr.marketing_consent });
     const fe = R.pfErr || {};
     const field = (k, label, input, opt) => `<div class="field${fe[k] ? " has-error" : ""}"><label for="pf-${k}">${label}${opt ? ` <span class="muted small">${P("(ไม่บังคับ)", "(optional)")}</span>` : ""}</label>${input}${fe[k] ? `<span class="err">${esc(fe[k])}</span>` : ""}</div>`;
     const g = (v, th, en) => `<label class="radio"><input type="radio" name="pf-gender" value="${v}"${F.gender === v ? " checked" : ""}><span>${P(th, en)}</span></label>`;
-    return pubLayout(`<header class="page-head"><div class="wrap"><h1>${!cust ? P("ข้อมูลสมาชิก", "Your profile") : first ? P("กรอกข้อมูลสมาชิก", "Complete your profile") : P("ข้อมูลสมาชิก", "Your profile")}</h1>${first && cust ? `<p class="lede">${P("กรอกครั้งเดียว ครั้งต่อไปจองได้เลยไม่ต้องกรอกซ้ำ", "Fill this in once and booking is quicker next time.")}</p>` : ""}</div></header>
+    return pubLayout(`<header class="page-head"><div class="wrap"><h1>${!cust ? P("ข้อมูลสมาชิก", "Your profile") : first || short ? P("กรอกข้อมูลสมาชิก", "Complete your profile") : P("ข้อมูลสมาชิก", "Your profile")}</h1>${first && cust ? `<p class="lede">${P("กรอกครั้งเดียว ครั้งต่อไปจองได้เลยไม่ต้องกรอกซ้ำ", "Fill this in once and booking is quicker next time.")}</p>` : short && cust ? `<p class="lede">${P("เพิ่มนามสกุลอีกช่องเดียว แล้วใช้งานต่อได้เลย", "Just add your last name, then carry on.")}</p>` : ""}</div></header>
 <section class="section" style="padding-top:8px"><div class="wrap">${flashHTML()}
   ${!cust ? `<div class="panel" style="max-width:520px">${loginPanel(P("เข้าสู่ระบบก่อน", "Please sign in first."))}</div>` : `
   <form class="panel profile-form" id="pf" novalidate>
@@ -740,12 +772,12 @@
     ${!first && !pr.email_verified ? `<div class="verify-box">${R.verifySent ? `<p class="small">${ICON.ok} ${P(`ส่งลิงก์ไปที่ ${esc(cust.email)} แล้ว เปิดอีเมลแล้วกดลิงก์ภายใน 1 ชั่วโมง (ดูในจดหมายขยะด้วย)`, `We've sent a link to ${esc(cust.email)}. Open it within an hour (check spam too).`)}</p>` : `<p class="small">${P("ยืนยันอีเมลไว้ (ไม่บังคับ) เพื่อให้แน่ใจว่าได้รับลิงก์ตอนลืมรหัสผ่าน", "Confirm your email (optional) so you're sure to get the link if you forget your password.")}</p>${R.verifyOpen ? `<div id="captcha" class="captcha"></div>` : ""}<button class="btn btn--small" type="button" data-verify>${R.verifyOpen ? P("ส่งลิงก์ยืนยัน", "Send the link") : P("ยืนยันอีเมล", "Confirm email")}</button>`}</div>` : ""}
     ${field("phone", P("เบอร์มือถือ", "Mobile number"), `<div class="tel-row"><span class="tel-cc" aria-hidden="true">🇹🇭 +66</span><input id="pf-phone" type="tel" inputmode="tel" autocomplete="tel-national" maxlength="12" placeholder="8x xxx xxxx" value="${esc(F.phone)}" aria-label="${P("เบอร์มือถือ ไม่ต้องใส่ 0 ข้างหน้า", "Mobile number")}"></div>`)}
     <h2>${P("ข้อมูลส่วนตัว", "Personal details")}</h2>
-    <div class="row-2">${field("first_name", P("ชื่อ", "First name"), `<input id="pf-first_name" type="text" autocomplete="given-name" maxlength="60" value="${esc(F.first_name)}">`)}${field("last_name", P("นามสกุล", "Last name"), `<input id="pf-last_name" type="text" autocomplete="family-name" maxlength="60" value="${esc(F.last_name)}">`, true)}</div>
+    <div class="row-2">${field("first_name", P("ชื่อ", "First name"), `<input id="pf-first_name" type="text" autocomplete="given-name" maxlength="60" value="${esc(F.first_name)}">`)}${field("last_name", P("นามสกุล", "Last name"), `<input id="pf-last_name" type="text" autocomplete="family-name" maxlength="60" value="${esc(F.last_name)}">`)}</div>
     ${field("birth_date", P("วันเกิด", "Date of birth"), `<input id="pf-birth_date" type="date" max="${today()}" value="${esc(F.birth_date)}">`, true)}
     <fieldset class="field"><legend>${P("เพศ", "Gender")} <span class="muted small">${P("(ไม่บังคับ)", "(optional)")}</span></legend><div class="radio-row">${g("male", "ชาย", "Male")}${g("female", "หญิง", "Female")}${g("unspecified", "ไม่ระบุ", "Prefer not to say")}</div></fieldset>
     <label class="check"><input type="checkbox" id="pf-mkt"${F.marketing_consent ? " checked" : ""}><span>${P("ยินยอมให้ Peaceful Day ส่งข่าวสาร โปรโมชัน และข้อเสนอพิเศษทางอีเมลหรือ SMS (เลิกรับได้ทุกเมื่อ)", "I agree to receive news, promotions and offers from Peaceful Day by email or SMS (you can opt out any time).")}</span></label>
     ${first ? `<p class="muted small">${P('การกดบันทึกถือว่าคุณยอมรับ<a href="#privacy" target="_blank" rel="noopener">นโยบายความเป็นส่วนตัว</a>และ<a href="#terms" target="_blank" rel="noopener">เงื่อนไขการจอง</a>ของ Peaceful Day (เปิดในแท็บใหม่)', 'By saving, you agree to the Peaceful Day <a href="#privacy" target="_blank" rel="noopener">privacy policy</a> and <a href="#terms" target="_blank" rel="noopener">booking terms</a> (open in a new tab).')}</p>` : ""}
-    <div class="btn-row"><button class="btn btn--primary" type="submit" id="pf-save">${first ? P("บันทึกและไปจองรอบ", "Save and book") : P("บันทึกข้อมูล", "Save")}</button>${!first ? `<a class="btn btn--ghost" href="#my" data-go="my">${P("กลับ", "Back")}</a>` : ""}</div>
+    <div class="btn-row"><button class="btn btn--primary" type="submit" id="pf-save">${first ? P("บันทึกและไปจองรอบ", "Save and book") : short ? P("บันทึกแล้วไปต่อ", "Save and continue") : P("บันทึกข้อมูล", "Save")}</button>${!first && !short ? `<a class="btn btn--ghost" href="#my" data-go="my">${P("กลับ", "Back")}</a>` : ""}</div>
   </form>`}
 </div></section>`);
   }
@@ -765,21 +797,22 @@
       });
     }
     const keep = () => { const F = R.pf; F.phone = $("#pf-phone").value; F.first_name = $("#pf-first_name").value; F.last_name = $("#pf-last_name").value; F.birth_date = $("#pf-birth_date").value; const g = $("input[name=pf-gender]:checked"); F.gender = g ? g.value : ""; F.marketing_consent = $("#pf-mkt").checked; };
-    const ready = () => { const d = $("#pf-phone").value.replace(/\D/g, ""); $("#pf-save").disabled = !($("#pf-first_name").value.trim() && d.length >= 8); };
+    const ready = () => { const d = $("#pf-phone").value.replace(/\D/g, ""); $("#pf-save").disabled = !($("#pf-first_name").value.trim() && $("#pf-last_name").value.trim() && d.length >= 8); };
     f.addEventListener("input", ready); ready();
     f.addEventListener("submit", async (e) => {
       e.preventDefault(); keep(); const F = R.pf; R.pfErr = {};
       let d = F.phone.replace(/\D/g, ""); if (d.startsWith("66") && d.length >= 11) d = d.slice(2); if (!d.startsWith("0")) d = "0" + d;
       if (!/^0[2-9]\d{7,8}$/.test(d)) R.pfErr.phone = errText({ code: "phone" });
       if (!F.first_name.trim()) R.pfErr.first_name = errText({ code: "name" });
+      if (!F.last_name.trim()) R.pfErr.last_name = errText({ code: "last_name" });
       if (Object.keys(R.pfErr).length) { render(); return; }
       try {
-        const first = !R.profile;
+        const first = !R.profile || !(R.profile.last_name || "").trim(); // carry on to where they were going
         R.profile = await rpc("save_profile", { p: { phone: d, first_name: F.first_name, last_name: F.last_name, birth_date: F.birth_date || "", gender: F.gender, marketing_consent: F.marketing_consent, terms: true } }, "cust");
         BK.name = (R.profile.first_name + " " + R.profile.last_name).trim(); BK.phone = R.profile.phone; R.pf = null;
-        if (first) go(R.afterProfile || "book", { flash: P("บันทึกข้อมูลแล้ว เลือกรอบที่ต้องการได้เลย", "Saved. Choose your session.") });
+        if (first) go(R.afterProfile || "book", { flash: (R.afterProfile || "book") === "book" ? P("บันทึกข้อมูลแล้ว เลือกรอบที่ต้องการได้เลย", "Saved. Choose your session.") : P("บันทึกข้อมูลแล้ว", "Saved.") });
         else { R.flash = P("บันทึกข้อมูลแล้ว", "Saved."); render(); }
-      } catch (err) { if (err.code === "phone" || err.code === "name" || err.code === "birth") R.pfErr[err.code === "name" ? "first_name" : err.code === "birth" ? "birth_date" : "phone"] = errText(err); else R.flashErr = errText(err); render(); }
+      } catch (err) { if (["phone", "name", "last_name", "birth"].includes(err.code)) R.pfErr[{ name: "first_name", birth: "birth_date" }[err.code] || err.code] = errText(err); else R.flashErr = errText(err); render(); }
     });
   }
 
@@ -882,21 +915,41 @@
       agree: "I have read and understood the risks, had an opportunity to ask questions, and choose to participate voluntarily. I understand that staff may pause or end participation for safety. Signing does not waive my legal rights or exclude any provider liability that cannot lawfully be excluded." },
   };
   const freshWF = () => ({ first_name: "", last_name: "", email: "", phone: "", services: "both", agree: false, mkt: false });
+  // ---------- hand-over: the team's device given to a customer to register ----------
+  // While it is on (this browser, up to 12 hours), only the registration page shows: no menus and no back office.
+  // The team holds "ทีมงาน" at the bottom for 2 seconds to come back.
+  const HO_KEY = "pfd-handover";
+  const handover = () => { const h = store.get(HO_KEY); return h && Date.now() - (Number(h.at) || 0) < 12 * 3600e3 ? h : null; };
+  function startHandover(ref, wtok, prefill) {
+    store.set(HO_KEY, { ref: ref || "", wtok: wtok || "", at: Date.now() });
+    Object.assign(R, { view: "waiver", wref: (ref || "").toUpperCase(), wtok: wtok || "", wdone: null, wErr: {}, wsig: null, wf: Object.assign(freshWF(), prefill || {}), flash: "", flashErr: "" });
+    try { history.pushState(null, "", "#waiver" + (ref ? "/" + ref + "/" + wtok : "")); } catch (e) { /* ignore */ }
+    render(); window.scrollTo(0, 0);
+  }
+  function endHandover() { store.del(HO_KEY); Object.assign(R, { wf: freshWF(), wdone: null, wsig: null, wErr: {} }); go("queue"); }
   async function viewWaiver() {
     const W = WAIVER[lang === "en" ? "en" : "th"], F = R.wf || (R.wf = freshWF()), fe = R.wErr || {};
-    const team = !!session; // a signed-in team member on the shop's tablet can look people up
+    // the team's device handed to a customer: no menus, no lookups, no way back without the team's hold-to-return
+    const kiosk = !!(session && handover());
     let bk = null;
     if (R.wref && R.wtok) { try { bk = await rpc("waiver_booking", { p_ref: R.wref, p_token: R.wtok }); } catch (e) { bk = null; } }
     // the person who booked usually registers first, on their own phone: start from their member profile
-    if (bk && !bk.signed && !R.wdone && !F.first_name && !F.email && !team) {
+    if (bk && !bk.signed && !R.wdone && !F.first_name && !F.email && !kiosk) {
       if (cust && R.profile === undefined) await ensureProfile();
       if (cust && R.profile) Object.assign(F, { first_name: R.profile.first_name || "", last_name: R.profile.last_name || "", email: R.profile.email || cust.email || "", phone: R.profile.phone || "" });
     }
     if (R.wdone) {
-      const d = R.wdone, more = d.people && d.signed < d.people;
-      return pubLayout(`<section class="section"><div class="wrap waiver"><div class="alert alert--ok" role="status">${ICON.ok}<p>${P("ลงทะเบียนเรียบร้อย ขอบคุณค่ะ", "Registered. Thank you.")}${d.people ? P(` (ลงทะเบียนแล้ว ${d.signed} จาก ${d.people} คนในการจอง ${esc(d.ref)})`, ` (${d.signed} of ${d.people} people registered for ${esc(d.ref)})`) : ""}</p></div>
-        <p class="lede">${more ? P("ส่งเครื่องให้คนถัดไปในกลุ่มลงทะเบียนได้เลย", "Pass the phone to the next person in your group.") : P("แล้วพบกันที่สวน", "See you in the garden.")}</p>
-        <div class="btn-row"><button class="btn btn--primary" type="button" data-wnext>${P("ลงทะเบียนคนถัดไป", "Next person")}</button>${team ? `<a class="btn" href="#queue" data-go="queue">กลับหน้าจองคิว</a>` : `<a class="btn" href="#home" data-go="home">${P("กลับหน้าแรก", "Back to home")}</a>`}</div></div></section>`);
+      // a booking takes as many people as it has; registering without a booking (walk-ins) can go on
+      const d = R.wdone, linked = !!d.people, more = !linked || d.signed < d.people;
+      return pubLayout(`<section class="section"><div class="wrap waiver"><div class="alert alert--ok" role="status">${ICON.ok}<p>${P("ลงทะเบียนเรียบร้อย ขอบคุณค่ะ", "Registered. Thank you.")}${linked ? P(` (ลงทะเบียนแล้ว ${d.signed} จาก ${d.people} คนในการจอง ${esc(d.ref)})`, ` (${d.signed} of ${d.people} people registered for ${esc(d.ref)})`) : ""}</p></div>
+        <p class="lede">${linked && !more ? P(`ลงทะเบียนครบ ${d.people} คนแล้ว${kiosk ? " ส่งเครื่องคืนทีมงานได้เลยค่ะ" : " แล้วพบกันที่สวน"}`, `Everyone is registered.${kiosk ? " Please hand the device back to our team." : " See you in the garden."}`) : P("ส่งเครื่องให้คนถัดไปลงทะเบียนได้เลย", "Pass the device to the next person.")}</p>
+        <div class="btn-row">${more ? `<button class="btn btn--primary" type="button" data-wnext>${P("ลงทะเบียนคนถัดไป", "Next person")}</button>` : ""}${kiosk ? "" : `<a class="btn" href="#home" data-go="home">${P("กลับหน้าแรก", "Back to home")}</a>`}</div></div></section>`, { bare: kiosk });
+    }
+    // everyone on this booking has registered already
+    if (bk && bk.signed >= bk.people) {
+      return pubLayout(`<section class="section"><div class="wrap waiver"><div class="alert alert--ok" role="status">${ICON.ok}<p>${P(`การจอง ${esc(bk.ref)} ลงทะเบียนครบ ${bk.people} คนแล้ว`, `Everyone on ${esc(bk.ref)} (${bk.people}) has registered.`)}</p></div>
+        <p class="lede">${kiosk ? P("ส่งเครื่องคืนทีมงานได้เลยค่ะ", "Please hand the device back to our team.") : P("ถ้ามีเพื่อนมาเพิ่ม แจ้งทีมงานที่ร้าน แล้วพบกันที่สวน", "If someone else is joining, tell our team at the shop. See you in the garden.")}</p>
+        ${kiosk ? "" : `<div class="btn-row"><a class="btn" href="#home" data-go="home">${P("กลับหน้าแรก", "Back to home")}</a></div>`}</div></section>`, { bare: kiosk });
     }
     const field = (k, label, input) => `<div class="field${fe[k] ? " has-error" : ""}"><label for="w-${k}">${label}</label>${input}${fe[k] ? `<span class="err">${esc(fe[k])}</span>` : ""}</div>`;
     const svc = (v, th, en) => `<label class="radio"><input type="radio" name="w-svc" value="${v}"${F.services === v ? " checked" : ""}><span>${P(th, en)}</span></label>`;
@@ -905,9 +958,6 @@
       ${bk ? `<p class="small">${P("การจอง", "Booking")} <b>${esc(bk.ref)}</b> ${P("ของคุณ", "by")} ${esc(bk.name)} · ${esc(dShort(bk.day))} ${esc(bk.hm)} · ${P(`ลงทะเบียนแล้ว ${bk.signed} จาก ${bk.people} คน`, `${bk.signed} of ${bk.people} registered`)}</p>`
         : R.wref ? `<p class="note-box small">${P("ลิงก์นี้ไม่ครบหรือใช้ไม่ได้แล้ว ลงทะเบียนต่อได้ แต่จะไม่ผูกกับการจอง ขอลิงก์ใหม่จากผู้จอง (หน้าการจองของเขา) หรือแจ้งทีมงานที่ร้าน", "This link is incomplete or no longer valid. You can still register, but it won't be linked to the booking. Ask the person who booked for the link again, or tell our team.")}</p>` : ""}</div></header>
 <section class="section" style="padding-top:8px"><div class="wrap waiver">${flashHTML()}
-  ${team ? `<div class="panel w-find"><label for="w-q"><b>เคยลงทะเบียนแล้ว?</b> ค้นหาด้วยชื่อ เบอร์ หรืออีเมล <span class="muted small">(สำหรับทีมงาน)</span></label>
-    <div class="code-row"><input id="w-q" type="search" autocomplete="off" value="${esc(R.wq || "")}"><button class="btn btn--small" type="button" data-wfind>ค้นหา</button></div>
-    ${R.wfound ? (R.wfound.length ? `<ul class="w-found">${R.wfound.map((x, i) => `<li><button type="button" data-wpick="${i}"><b>${esc((x.first_name + " " + x.last_name).trim())}</b><span>${esc(fmtPhone(x.phone))}${x.email ? " · " + esc(x.email) : ""}${x.member ? " · สมาชิก" : ""}${x.visits ? " · มาแล้ว " + x.visits + " ครั้ง" : ""}</span></button></li>`).join("")}</ul>` : '<p class="muted small">ไม่พบ ลงทะเบียนใหม่ด้านล่าง</p>') : ""}</div>` : ""}
   <form class="panel waiver-form" id="wf" novalidate>
     <h2>${P("ข้อมูลผู้ใช้บริการ", "Your details")}</h2>
     <div class="row-2">${field("first_name", P("ชื่อ", "First name"), `<input id="w-first_name" type="text" maxlength="60" autocomplete="given-name" value="${esc(F.first_name)}">`)}${field("last_name", P("นามสกุล", "Last name"), `<input id="w-last_name" type="text" maxlength="60" autocomplete="family-name" value="${esc(F.last_name)}">`)}</div>
@@ -923,16 +973,11 @@
     <p class="muted small">${P('ข้อมูล ลายเซ็น และเวลาที่ลงชื่อจะถูกเก็บเป็นหลักฐาน ตาม<a href="#privacy" target="_blank" rel="noopener">นโยบายความเป็นส่วนตัว</a>', 'Your details, signature and the time are kept as a record, as described in our <a href="#privacy" target="_blank" rel="noopener">privacy policy</a>.')}</p>
     <button class="btn btn--primary btn--block" type="submit" id="w-go">${P("ลงทะเบียนและลงชื่อ", "Register and sign")}</button>
   </form>
-</div></section>`);
+</div></section>`, { bare: kiosk });
   }
   function bindWaiver() {
-    const nx = $("[data-wnext]"); if (nx) nx.addEventListener("click", () => { R.wdone = null; R.wf = freshWF(); R.wErr = {}; R.wfound = null; R.wq = ""; R.wsig = null; render(); window.scrollTo(0, 0); });
+    const nx = $("[data-wnext]"); if (nx) nx.addEventListener("click", () => { R.wdone = null; R.wf = freshWF(); R.wErr = {}; R.wsig = null; render(); window.scrollTo(0, 0); });
     const keep = () => { const F = R.wf; ["first_name", "last_name", "email", "phone"].forEach((k) => { const i = $("#w-" + k); if (i) F[k] = i.value; }); const r = $("input[name=w-svc]:checked"); F.services = r ? r.value : "both"; const a = $("#w-agree"); if (a) F.agree = a.checked; const m = $("#w-mkt"); if (m) F.mkt = m.checked; };
-    // team: look up someone who registered before, so they only tick and sign
-    const fq = $("#w-q"), fb = $("[data-wfind]");
-    const find = async () => { keep(); R.wq = fq.value.trim(); if (R.wq.length < 2) return; try { R.wfound = await rpc("staff_people_search", { p_q: R.wq }, true); } catch (e) { R.wfound = []; R.flashErr = errText(e); } saveSig(); render(); };
-    if (fb) { fb.addEventListener("click", find); fq.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); find(); } }); }
-    $$("[data-wpick]").forEach((b) => b.addEventListener("click", () => { keep(); const x = R.wfound[Number(b.dataset.wpick)]; Object.assign(R.wf, { first_name: x.first_name || "", last_name: x.last_name || "", email: x.email || "", phone: x.phone || "" }); R.wfound = null; R.wErr = {}; saveSig(); render(); const a = $("#w-agree"); if (a) a.scrollIntoView({ block: "center" }); }));
     const cv = $("#sig"); if (!cv) return;
     const ratio = Math.max(1, window.devicePixelRatio || 1), box = cv.parentElement;
     cv.width = box.clientWidth * ratio; cv.height = box.clientHeight * ratio;
@@ -958,13 +1003,29 @@
       const go2 = $("#w-go"); go2.disabled = true; saveSig();
       try {
         const res = await rpc("sign_waiver", { p: { ref: R.wref || "", token: R.wtok || "", first_name: F.first_name, last_name: F.last_name, email: F.email, phone: F.phone, services: F.services, agree: true, marketing_consent: F.mkt, signature: R.wsig, lang } }, !!session);
-        R.wdone = res; R.flashErr = ""; R.wErr = {}; R.wf = freshWF(); R.wsig = null; R.wfound = null; R.wq = "";
+        R.wdone = res; R.flashErr = ""; R.wErr = {}; R.wf = freshWF(); R.wsig = null;
       } catch (err) {
         R.flashErr = errText(err); R.wErr = {};
         if (err.code === "email") R.wErr.email = errText(err); if (err.code === "any_phone") R.wErr.phone = errText(err); if (err.code === "name") R.wErr.first_name = errText(err);
+        if (err.code === "waiver_full") { R.flashErr = ""; R.wf = freshWF(); R.wsig = null; } // someone else just took the last place: show the "all registered" page
       }
       render(); window.scrollTo(0, 0);
     });
+  }
+
+  // ---------- a sign-in link this browser didn't ask for: say whose account it opens before using it ----------
+  function viewAuthOk() {
+    const h = window.__pfdAuthHold;
+    if (!h) return viewHome();
+    return pubLayout(`<section class="section"><div class="wrap" style="max-width:560px"><h1>${P("เข้าสู่ระบบจากลิงก์ในอีเมล", "Sign in from an email link")}</h1>
+      <p class="lede">${P("ลิงก์นี้จะเข้าสู่ระบบด้วยอีเมล", "This link signs you in as")} <b>${esc(h.email || "-")}</b></p>
+      <p class="muted small">${P("ถ้าไม่ใช่อีเมลของคุณ หรือคุณไม่ได้ขอลิงก์นี้เอง กด “ไม่ใช่ฉัน”", "If this isn't your email, or you didn't ask for this link, choose Not me.")}</p>
+      <div class="btn-row"><button class="btn btn--primary" type="button" data-authok>${P("เข้าสู่ระบบ", "Sign in")}</button><button class="btn" type="button" data-authno>${P("ไม่ใช่ฉัน", "Not me")}</button></div></div></section>`);
+  }
+  function bindAuthOk() {
+    const ok = $("[data-authok]"), no = $("[data-authno]");
+    if (ok) ok.addEventListener("click", () => { const h = window.__pfdAuthHold; window.__pfdAuthHold = null; if (h) h.apply(true); fromHash(); render(); window.scrollTo(0, 0); });
+    if (no) no.addEventListener("click", () => { window.__pfdAuthHold = null; go("home"); });
   }
 
   // ---------- find my booking ----------
@@ -1122,6 +1183,34 @@
     $$("[data-cimethod]").forEach((b) => b.addEventListener("click", () => act(async () => { const ref = R.checkinFor.ref; R.checkinFor = null; await rpc("staff_checkin", { p_ref: ref, p_method: b.dataset.cimethod }, true); return "เช็คอิน " + ref + (b.dataset.cimethod ? " และรับเงิน" + METHOD[b.dataset.cimethod] + "แล้ว" : " แล้ว (ยังไม่ได้รับเงิน)"); })));
     const cc = $("[data-cicancel]"); if (cc) cc.addEventListener("click", () => { R.checkinFor = null; render(); });
   }
+  // customers the shop already knows, listed under a booking form's name and phone as the team types; a tap fills both
+  function custSuggest(nameEl, phoneEl, box, onPick) {
+    if (!nameEl || !phoneEl || !box) return;
+    const KIND = { member: "สมาชิก", guest: "เคยลงทะเบียน", booking: "เคยจอง" };
+    let t = 0, seq = 0;
+    const look = (q, enough) => {
+      clearTimeout(t); seq++;
+      if (!enough) { box.innerHTML = ""; return; }
+      const my = seq;
+      t = setTimeout(async () => {
+        let list = [];
+        try { list = await rpc("staff_find_customer", { p_q: q }, true); } catch (e) { list = []; }
+        if (my !== seq || !box.isConnected) return;
+        box.innerHTML = list.length ? `<p class="muted small">ลูกค้าในระบบ แตะเพื่อใส่ชื่อและเบอร์</p><ul class="w-found">${list.map((x, i) => `<li><button type="button" data-sug="${i}"><b>${esc(x.name)}</b><span>${esc(fmtPhone(x.phone))} · ${KIND[x.kind] || ""}${x.visits ? " · มาแล้ว " + x.visits + " ครั้ง" : x.bookings ? " · จอง " + x.bookings + " ครั้ง" : ""}${x.last_day ? " · ล่าสุด " + esc(dShort(x.last_day, "th-TH")) : ""}</span></button></li>`).join("")}</ul>` : "";
+        $$("[data-sug]", box).forEach((b) => b.addEventListener("click", () => {
+          const x = list[Number(b.dataset.sug)]; seq++; box.innerHTML = "";
+          nameEl.value = x.name; phoneEl.value = /^0\d{8,9}$/.test(x.phone || "") ? x.phone : ""; // bookings take Thai numbers only
+          if (onPick) onPick(x);
+        }));
+      }, 250);
+    };
+    nameEl.addEventListener("input", () => { const v = nameEl.value.trim(); look(v, v.length >= 2); });
+    phoneEl.addEventListener("input", () => { const d = phoneEl.value.replace(/\D/g, ""); look(d, d.length >= 4); });
+  }
+  // "register on this device": lock the screen to the registration page and hand it over
+  function bindHandoverButtons() {
+    $$("[data-ho]").forEach((b) => b.addEventListener("click", () => { const [ref, wt] = b.dataset.ho.split("|"); startHandover(ref, wt); }));
+  }
   // open a booking's people (registration and per-person check-in) on the queue page
   function bindToQueue() {
     $$("[data-toqueue]").forEach((b) => b.addEventListener("click", () => { const [ref, day] = b.dataset.toqueue.split("|"); Object.assign(R, { qtab: "day", qday: day, qstrip: day, qPeople: ref, qOpen: "", qSlip: "" }); go("queue"); }));
@@ -1151,7 +1240,7 @@
     ${slip ? slipCard(b, slip) : ""}
     <section class="card"><h2>ผู้ใช้บริการ <span class="muted" style="font-weight:400">ลงทะเบียน ${ppl.length}/${b.people} · มาแล้ว ${ppl.filter((x) => x.checked_at).length}</span></h2>
       ${ppl.length ? `<ul class="pp-list">${ppl.map((x) => `<li class="${x.checked_at ? "is-in" : ""}"><img src="${esc(x.signature)}" alt="ลายเซ็นของ ${esc(x.name)}"><span class="pp-who"><b>${esc(x.name)}</b><span class="muted small">${esc(fmtPhone(x.phone))}${x.email ? " · " + esc(x.email) : ""} · ${x.visits ? "มาแล้ว " + x.visits + " ครั้ง" : "ยังไม่เคยเช็คอิน"}</span>${x.came_with ? `<span class="q-note">${esc(x.came_with)}</span>` : ""}</span>${x.checked_at ? `<span class="pp-ok">✓ ${esc(hhmm(x.checked_at))}${x.checked_by ? " · " + esc(x.checked_by) : ""}</span>` : '<span class="muted small">ยังไม่เช็คอิน</span>'}</li>`).join("")}</ul>` : '<p class="muted">ยังไม่มีใครลงทะเบียน</p>'}
-      <p class="small"><a href="#waiver/${esc(b.ref)}/${esc(b.wtoken)}">+ ลงทะเบียนผู้ใช้บริการ</a></p></section>
+      ${["confirmed", "checked_in"].includes(b.status) ? (ppl.length < b.people ? `<p class="btn-row"><button class="btn btn--small" type="button" data-ho="${esc(b.ref)}|${esc(b.wtoken)}">ลงทะเบียนในเครื่องนี้</button><button class="btn btn--small btn--ghost" type="button" data-copy="${esc(location.origin + location.pathname + "#waiver/" + b.ref + "/" + b.wtoken)}">คัดลอกลิงก์ส่งลูกค้า</button></p>` : `<p class="small muted">ลงทะเบียนครบแล้ว</p>`) : ""}</section>
     <section class="card"><h2>จัดการ</h2>
       ${b.status === "confirmed" || (b.status === "checked_in" && (b.arrived || 0) < b.people) ? `<div class="btn-row"><button class="btn btn--primary" type="button" data-toqueue="${esc(b.ref)}|${b.day}">เช็คอินรายคน (หน้าจองคิว)</button></div>` : ""}
       ${owes(b) && (b.status === "confirmed" || b.status === "checked_in") ? `${b.pay === "review" ? '<p class="small"><b>ลูกค้าแนบสลิปแล้ว</b> ตรวจสลิปด้านบนก่อนรับเงิน จะได้ไม่เก็บซ้ำ</p>' : ""}<div class="btn-row" style="margin-top:8px">${Object.entries(METHOD).map(([k, l]) => `<button class="btn btn--small" type="button" data-bpay="${k}">รับ${l} ${baht(b.total)}</button>`).join("")}</div>` : ""}
@@ -1169,6 +1258,7 @@
   // the customer's slip, with the button that confirms the transfer
   function slipCard(b, slip) {
     return `<section class="card slip-card"><h2>สลิปโอนเงิน</h2><p class="muted small">ส่งเมื่อ ${esc(dt(slip.at))} · ยอดที่ต้องได้ <b>${baht(b.total)}</b></p>${slip.result ? `<p class="small">ระบบตรวจอัตโนมัติ: ${esc(slip.result)}</p>` : ""}
+      ${slip.slip_ref ? `<p class="small muted">เลขอ้างอิงในสลิป ${esc(slip.slip_ref)}${slip.amount != null ? " · ยอดในสลิป " + baht(slip.amount) : ""}</p>` : b.pay === "review" ? `<p class="small"><b>${slip.checking ? "ระบบกำลังตรวจสลิปนี้อยู่" : "ระบบอ่านเลขอ้างอิงในสลิปไม่ได้"}</b> ถ้าจะยืนยันเอง ดูในแอปธนาคารว่าเงินเข้าจริง และไม่ใช่สลิปที่เคยใช้แล้ว</p>` : ""}
       <a href="${esc(slip.data)}" target="_blank" rel="noopener" class="slip-img"><img src="${esc(slip.data)}" alt="สลิปโอนเงินของ ${esc(b.name)}"></a>
       ${b.pay === "review" ? `<div class="btn-row" style="margin-top:10px"><button class="btn btn--primary" type="button" data-slipok="${esc(b.ref)}">ยอดถูกต้อง ยืนยันรับโอน</button><button class="btn btn--small btn--danger" type="button" data-slipno="${esc(b.ref)}" data-confirm="กดอีกครั้ง: ยกเลิกการจองนี้">สลิปไม่ถูกต้อง ยกเลิกคิว</button></div><p class="muted small">เช็คในแอปธนาคารว่าเงินเข้าจริงก่อนกดยืนยัน</p>` : ""}</section>`;
   }
@@ -1183,7 +1273,7 @@
   }
   function bindAdminBooking() {
     const ref = R.aref;
-    bindSlipButtons(); bindToQueue();
+    bindSlipButtons(); bindToQueue(); bindHandoverButtons();
     $$("[data-bci]").forEach((b) => b.addEventListener("click", () => act(async () => { await rpc("staff_checkin", { p_ref: ref, p_method: b.dataset.bci }, true); return "เช็คอินแล้ว"; })));
     $$("[data-bpay]").forEach((b) => b.addEventListener("click", () => act(async () => { await rpc("staff_take_payment", { p_ref: ref, p_method: b.dataset.bpay }, true); return "บันทึกรับเงินแล้ว"; })));
     $$("[data-bst]").forEach((b) => b.addEventListener("click", () => act(async () => { await rpc("staff_set_status", { p_ref: ref, p_status: b.dataset.bst }, true); return "อัปเดตสถานะแล้ว"; })));
@@ -1201,8 +1291,9 @@
   <form class="card" id="nb">
     <div class="form-grid"><div class="field"><label for="nb-day">วันที่</label><input type="date" id="nb-day" value="${N.day}"></div><div class="field"><label for="nb-people">จำนวนคน</label><input type="number" id="nb-people" min="1" max="50" value="${N.people}"></div></div>
     <div class="btn-row" style="margin:12px 0">${day.slots.map((s) => `<button type="button" class="btn btn--small${N.hm === s.hm ? " btn--primary" : ""}" data-nbhm="${s.hm}">${s.hm} · ว่าง ${Math.max(0, s.capacity - s.used)}/${s.capacity}${s.blocked ? " · ปิด" : ""}</button>`).join("") || '<span class="muted">วันนั้นไม่มีรอบ</span>'}</div>
-    <div class="form-grid"><div class="field"><label for="nb-name">ชื่อลูกค้า</label><input type="text" id="nb-name" value="${esc(N.name)}"></div><div class="field"><label for="nb-phone">เบอร์โทร (ไม่บังคับ)</label><input type="tel" id="nb-phone" value="${esc(N.phone)}"></div>
+    <div class="form-grid"><div class="field"><label for="nb-name">ชื่อลูกค้า</label><input type="text" id="nb-name" autocomplete="off" placeholder="พิมพ์ชื่อ ลูกค้าเดิมจะขึ้นให้เลือก" value="${esc(N.name)}"></div><div class="field"><label for="nb-phone">เบอร์โทร (ไม่บังคับ)</label><input type="tel" id="nb-phone" autocomplete="off" value="${esc(N.phone)}"></div>
       <div class="field"><label for="nb-ch">ช่องทาง</label><select id="nb-ch">${[["walk_in", "Walk-in"], ["phone", "โทรศัพท์"], ["line", "LINE"]].map(([k, l]) => `<option value="${k}"${N.channel === k ? " selected" : ""}>${l}</option>`).join("")}</select></div></div>
+    <div class="q-sug" id="nb-sug" aria-live="polite"></div>
     ${ME.role !== "staff" ? `<label class="check" style="margin-top:10px"><input type="checkbox" id="nb-free"${N.free ? " checked" : ""}> ไม่คิดเงิน (แขกของร้าน)</label><label class="check"><input type="checkbox" id="nb-over"${N.over ? " checked" : ""}> อนุญาตเกินความจุ</label>` : ""}
     <p style="margin-top:14px"><button class="btn btn--primary" type="submit">สร้างการจอง</button></p>
   </form>`);
@@ -1210,6 +1301,7 @@
   function bindNew() {
     const N = R.nb;
     const sync = () => { N.day = $("#nb-day").value || N.day; N.people = Number($("#nb-people").value) || 1; N.name = $("#nb-name").value; N.phone = $("#nb-phone").value; N.channel = $("#nb-ch").value; const f = $("#nb-free"), o = $("#nb-over"); N.free = !!(f && f.checked); N.over = !!(o && o.checked); };
+    custSuggest($("#nb-name"), $("#nb-phone"), $("#nb-sug"), sync);
     $("#nb-day").addEventListener("change", () => { sync(); N.hm = ""; render(); });
     $$("[data-nbhm]").forEach((b) => b.addEventListener("click", () => { sync(); N.hm = b.dataset.nbhm; render(); }));
     $("#nb").addEventListener("submit", async (e) => {
@@ -1326,7 +1418,7 @@
     return `<header class="q-head"><div><h1>${LOGO}<span>Peaceful Day · จองคิว</span></h1><p class="muted small">${closedNames ? "ร้านหยุดทุกวัน" + esc(closedNames) + " · " : ""}รอบ ${esc(times[0] || "")}–${esc(times[times.length - 1] || "")} · อยู่ได้ ${C.duration / 60} ชม.</p></div>
       <div class="btn-row"><button class="btn" type="button" data-qqr>QR ลงชื่อ</button><button class="btn" type="button" data-qcsv>ส่งออก CSV</button><button class="btn btn--primary" type="button" data-qnew>+ จองคิวใหม่</button>${ME.role !== "staff" ? `<a class="btn btn--ghost" href="#admin" data-go="admin">หลังบ้าน</a>` : `<button class="btn btn--ghost" type="button" data-signout>ออกจากระบบ</button>`}</div></header>
       ${R.flash ? `<div class="alert alert--ok" role="status">${esc(R.flash)}</div>` : ""}${R.flashErr ? `<div class="alert alert--bad" role="alert">${esc(R.flashErr)}</div>` : ""}
-      ${R.qQr ? `<div class="card q-qr"><div>${qrSVG("https://peacefulday.co/#waiver")}</div><div><h2>ให้ลูกค้าสแกนเพื่อลงทะเบียน</h2><p class="muted">สำหรับ walk-in สแกนแล้วลงทะเบียนในมือถือ หรือเปิด <b>peacefulday.co/#waiver</b> บนแท็บเล็ตของร้าน คนที่มากับการจอง ให้กด “+ ลงทะเบียนเพื่อน” จากคิวนั้น จะได้ผูกกับการจองและนับว่ามากับใคร</p><p><button class="btn btn--small" type="button" data-print>พิมพ์ QR</button></p></div></div>` : ""}`;
+      ${R.qQr ? `<div class="card q-qr"><div>${qrSVG("https://peacefulday.co/#waiver")}</div><div><h2>ให้ลูกค้าสแกนเพื่อลงทะเบียน</h2><p class="muted">สำหรับ walk-in สแกนแล้วลงทะเบียนในมือถือตัวเอง หรือกด “ลงทะเบียนในเครื่องนี้” แล้วส่งเครื่องให้ลูกค้า คนที่มากับการจอง ให้ลงทะเบียนจากปุ่ม “ลงทะเบียน x/y” ของคิวนั้น จะได้ผูกกับการจองและนับว่ามากับใคร</p><p class="btn-row"><button class="btn btn--small btn--primary" type="button" data-ho="|">ลงทะเบียนในเครื่องนี้</button><button class="btn btn--small" type="button" data-print>พิมพ์ QR</button></p></div></div>` : ""}`;
   }
   function qRow(b, opts) {
     const t = payType(b), o = opts || {};
@@ -1346,11 +1438,18 @@
   const hhmm = (iso) => new Date(iso).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok" });
   function peoplePanel(b, list) {
     const L = list || [], here = L.filter((x) => x.checked_at).length, missing = Math.max(0, b.people - L.length);
-    const reg = "#waiver/" + b.ref + "/" + b.wtoken, regAbs = location.origin + location.pathname + reg;
-    const pay = owes(b) && (b.status === "confirmed" || b.status === "checked_in") ? `<div class="pp-pay">${b.pay === "review" ? `<span class="small"><b>ลูกค้าแนบสลิปแล้ว</b> ดูสลิปก่อนรับเงิน จะได้ไม่เก็บซ้ำ <button class="btn btn--small" type="button" data-qslip="${esc(b.ref)}">ดูสลิป</button></span>` : ""}<span>รับเงิน <b>${baht(b.total)}</b> ด้วย</span> ${Object.entries(METHOD).map(([k, l]) => `<button class="btn btn--small btn--primary" type="button" data-qpay2="${k}|${esc(b.ref)}|${b.status}">${l}</button>`).join("")}</div>` : "";
+    const regAbs = location.origin + location.pathname + "#waiver/" + b.ref + "/" + b.wtoken, ho = esc(b.ref) + "|" + esc(b.wtoken);
+    const found = R.ppFor === b.ref ? R.ppFound : null;
+    const pay = owes(b) && (b.status === "confirmed" || b.status === "checked_in") ? `<div class="pp-pay">${b.pay === "review" ? `<span class="small"><b>ลูกค้าแนบสลิปแล้ว</b> ดูสลิปก่อนรับเงิน จะได้ไม่เก็บซ้ำ <button class="btn btn--small" type="button" data-qslip="${esc(b.ref)}">ดูสลิป</button></span>` : ""}<span>รับเงิน <b>${baht(b.total)}</b> ด้วย</span> ${Object.entries(METHOD).map(([k, l]) => `<button class="btn btn--small btn--primary" type="button" data-qpay2="${k}|${esc(b.ref)}">${l}</button>`).join("")}</div>` : "";
     return `<div class="pp-head"><b>ผู้ใช้บริการ ${b.people} คน</b><span class="muted small">ลงทะเบียนแล้ว ${L.length} · เช็คอินแล้ว ${here}</span></div>
-      ${L.length ? `<ul class="pp-list">${L.map((x) => `<li class="${x.checked_at ? "is-in" : ""}"><img src="${esc(x.signature)}" alt="ลายเซ็นของ ${esc(x.name)}"><span class="pp-who"><b>${esc(x.name)}</b><span class="muted small">${esc(fmtPhone(x.phone))}${x.email ? " · " + esc(x.email) : ""} · ${x.visits ? "มาแล้ว " + x.visits + " ครั้ง" : "ครั้งแรก"}</span>${x.came_with ? `<span class="q-note">${esc(x.came_with)}</span>` : ""}</span>${x.checked_at ? `<span class="pp-ok">✓ มาแล้ว ${esc(hhmm(x.checked_at))}</span><button class="btn btn--small btn--ghost" type="button" data-pout="${x.id}" data-confirm="กดอีกครั้งเพื่อยกเลิก">ยกเลิก</button>` : `<button class="btn btn--small btn--primary" type="button" data-pin="${x.id}">เช็คอิน</button>`}</li>`).join("")}</ul>` : ""}
-      ${missing ? `<p class="pp-missing"><span>ยังไม่ลงทะเบียน <b>${missing}</b> คน</span><a class="btn btn--small" href="${esc(reg)}">+ ลงทะเบียนเพื่อน</a><button class="btn btn--small btn--ghost" type="button" data-copy="${esc(regAbs)}">คัดลอกลิงก์ให้ลูกค้า</button></p>` : `<p class="small"><a href="${esc(reg)}">+ ลงทะเบียนเพิ่ม</a></p>`}
+      ${L.length ? `<ul class="pp-list">${L.map((x) => `<li class="${x.checked_at ? "is-in" : ""}"><img src="${esc(x.signature)}" alt="ลายเซ็นของ ${esc(x.name)}"><span class="pp-who"><b>${esc(x.name)}</b><span class="muted small">${esc(fmtPhone(x.phone))}${x.email ? " · " + esc(x.email) : ""} · ${x.visits ? "มาแล้ว " + x.visits + " ครั้ง" : "ครั้งแรก"}</span>${x.came_with ? `<span class="q-note">${esc(x.came_with)}</span>` : ""}</span>${x.checked_at ? `<span class="pp-ok">✓ มาแล้ว ${esc(hhmm(x.checked_at))}</span><button class="btn btn--small btn--ghost" type="button" data-pout="${x.id}" data-confirm="กดอีกครั้งเพื่อยกเลิก">ยกเลิก</button>` : `<button class="btn btn--small btn--primary" type="button" data-pin="${x.id}">เช็คอิน</button><button class="btn btn--small btn--ghost" type="button" data-punlink="${x.id}" data-confirm="กดอีกครั้ง: เอาออกจากคิวนี้" title="ลงผิดคน หรือลงซ้ำ">เอาออก</button>`}</li>`).join("")}</ul>` : ""}
+      ${missing ? `<div class="pp-add"><p class="pp-missing"><span>ยังไม่ลงทะเบียน <b>${missing}</b> คน</span></p>
+        <div class="btn-row"><button class="btn btn--small btn--primary" type="button" data-ho="${ho}">ลงทะเบียนในเครื่องนี้</button><button class="btn btn--small" type="button" data-pqr="${esc(b.ref)}" aria-expanded="${R.pQr === b.ref}">QR ให้ลูกค้าสแกน</button><button class="btn btn--small btn--ghost" type="button" data-copy="${esc(regAbs)}">คัดลอกลิงก์ส่งลูกค้า</button></div>
+        ${R.pQr === b.ref ? `<div class="pp-qr">${qrSVG(regAbs)}<p class="small muted">ให้ลูกค้าสแกนด้วยมือถือตัวเองแล้วลงทะเบียน ชื่อจะขึ้นในรายการนี้ (กด “ลงทะเบียน” ที่คิวอีกครั้งเพื่ออัปเดต)</p></div>` : ""}
+        <form class="pp-find" data-ppfind="${esc(b.ref)}"><label for="pp-q" class="small"><b>เคยมาแล้ว?</b> ค้นหาชื่อหรือเบอร์ แล้วให้ลูกค้าแค่ติ๊กและเซ็น</label><div class="code-row"><input id="pp-q" type="search" autocomplete="off" value="${esc(R.ppFor === b.ref ? R.ppQ || "" : "")}"><button class="btn btn--small" type="submit">ค้นหา</button></div></form>
+        ${found ? (found.length ? `<ul class="w-found">${found.map((x, i) => `<li><button type="button" data-pppick="${i}|${ho}"><b>${esc((x.first_name + " " + x.last_name).trim())}</b><span>${esc(fmtPhone(x.phone))}${x.email ? " · " + esc(x.email) : ""}${x.member ? " · สมาชิก" : ""}${x.visits ? " · มาแล้ว " + x.visits + " ครั้ง" : ""}</span></button></li>`).join("")}</ul>` : '<p class="muted small">ไม่พบ ให้ลงทะเบียนใหม่</p>') : ""}
+        <p class="muted small">“ลงทะเบียนในเครื่องนี้” จะล็อกหน้าจอไว้ที่หน้าลงทะเบียน ส่งเครื่องให้ลูกค้าได้เลย กลับมาหน้านี้: กดค้างที่ “ทีมงาน” ด้านล่างสุด 2 วินาที</p></div>`
+      : `<p class="small muted">ลงทะเบียนครบ ${b.people} คนแล้ว · ลงผิดคนกด “เอาออก” แล้วลงใหม่ได้ · มีคนมาเพิ่ม จองคิวใหม่ให้คนที่มาเพิ่ม</p>`}
       ${pay}
       ${ME.role !== "staff" && b.status === "confirmed" && missing ? `<p class="small muted">ลูกค้าลงทะเบียนไม่ได้จริง ๆ? <button class="btn btn--small btn--ghost" type="button" data-qgroup="${esc(b.ref)}" data-confirm="กดอีกครั้ง: เช็คอินทั้งกลุ่มโดยไม่ลงทะเบียน">เช็คอินทั้งกลุ่มโดยไม่ลงทะเบียน</button> (ผู้จัดการ/เจ้าของ)</p>` : ""}`;
   }
@@ -1360,8 +1459,9 @@
     return `<form class="card q-form" id="qn"><div class="q-form-head"><h2>จองคิวใหม่</h2><button class="btn btn--small btn--ghost" type="button" data-qclose>ปิด</button></div>
       <div class="form-grid"><div class="field"><label for="qn-day">วันที่</label><input type="date" id="qn-day" value="${N.day}"></div><div class="field"><label for="qn-people">จำนวนคน</label><input type="number" id="qn-people" min="1" max="50" value="${N.people}"></div></div>
       <p class="q-label">เวลา</p><div class="btn-row">${slots.length ? slots.map((s) => { const left = Math.max(0, s.capacity - s.used); return `<button type="button" class="btn btn--small${N.hm === s.hm ? " btn--primary" : ""}" data-qnhm="${s.hm}"${s.blocked ? " disabled" : ""}>${s.hm} · ${s.blocked ? "ปิด" : left ? "ว่าง " + left : "เต็ม"}</button>`; }).join("") : '<span class="muted">วันนั้นร้านปิด</span>'}</div>
-      <div class="form-grid" style="margin-top:12px"><div class="field"><label for="qn-name">ชื่อลูกค้า</label><input type="text" id="qn-name" maxlength="120" value="${esc(N.name)}"></div><div class="field"><label for="qn-phone">เบอร์โทร</label><input type="tel" id="qn-phone" maxlength="20" value="${esc(N.phone)}"></div>
+      <div class="form-grid" style="margin-top:12px"><div class="field"><label for="qn-name">ชื่อลูกค้า</label><input type="text" id="qn-name" maxlength="120" autocomplete="off" placeholder="พิมพ์ชื่อ ลูกค้าเดิมจะขึ้นให้เลือก" value="${esc(N.name)}"></div><div class="field"><label for="qn-phone">เบอร์โทร</label><input type="tel" id="qn-phone" maxlength="20" autocomplete="off" placeholder="หรือพิมพ์เบอร์เพื่อค้นหา" value="${esc(N.phone)}"></div>
         <div class="field"><label for="qn-ch">จองผ่าน</label><select id="qn-ch">${[["line", "LINE"], ["phone", "โทรศัพท์"], ["walk_in", "หน้าร้าน (Walk-in)"]].map(([k, l]) => `<option value="${k}"${N.channel === k ? " selected" : ""}>${l}</option>`).join("")}</select></div></div>
+      <div class="q-sug" id="qn-sug" aria-live="polite"></div>
       <p class="q-label">การชำระเงิน</p><div class="q-pts">${types}</div>
       ${N.pt === "package" ? `<div class="field" style="max-width:320px;margin-top:10px"><label for="qn-pkg">ชื่อแพ็กเกจ</label><input type="text" id="qn-pkg" list="qn-pkgs" maxlength="60" value="${esc(N.pkg)}" placeholder="เช่น Happy Duo"><datalist id="qn-pkgs">${PKGS.map((p) => `<option value="${p}">`).join("")}</datalist></div>` : ""}
       <p class="muted small" style="margin-top:8px">${N.pt === "venue" ? `ยอดที่ต้องเก็บหน้าร้าน ${baht(priceFor(N.people))}` : N.pt === "online" ? `บันทึกว่าจ่ายแล้ว ${baht(priceFor(N.people))}` : N.pt === "package" ? "ใช้สิทธิ์คูปอง ไม่เก็บเงินเพิ่ม ถ้าต้องเก็บส่วนต่าง ใส่ไว้ในหมายเหตุ" : "ไม่เก็บเงิน"}</p>
@@ -1401,7 +1501,8 @@
       <p class="q-legend">${Object.entries(PT_SHOW).filter(([k]) => k !== "expired").map(([, v]) => v).map(([l, k]) => `<span><i class="dot dot--${k}"></i>${l}</span>`).join("")}</p>
       ${day.slots.length ? `<div class="q-slots">${day.slots.map((s) => `<section class="q-slot${s.blocked ? " is-blocked" : ""}"><div class="q-slot-head"><b>${s.hm}–${s.end}</b><span class="meter${s.used >= s.capacity ? " full" : ""}" aria-hidden="true"><i style="width:${s.capacity ? Math.min(100, Math.round((s.used * 100) / s.capacity)) : 0}%"></i></span><span class="muted">${s.used}/${s.capacity} คน</span>${s.blocked ? '<span class="badge badge--muted">ปิดรอบ</span>' : `<button class="btn btn--small" type="button" data-qnewat="${s.hm}">+ จองรอบนี้</button>`}</div>${s.bookings.length ? `<ul>${s.bookings.map((b) => qRow(b)).join("")}</ul>` : ""}</section>`).join("")}
         ${day.off_schedule.length ? `<section class="q-slot"><div class="q-slot-head"><b>นอกตารางรอบ</b></div><ul>${day.off_schedule.map((b) => qRow(b)).join("")}</ul></section>` : ""}</div>`
-        : `<div class="card q-closed"><h3>${esc(closedText)}</h3><p class="muted">ไม่รับจองวันนี้</p></div>`}
+        : `<div class="card q-closed"><h3>${esc(closedText)}</h3><p class="muted">ไม่รับจองวันนี้${day.off_schedule.length ? " แต่มีคิวที่จองไว้ก่อนปิด ด้านล่าง ติดต่อลูกค้าเพื่อเลื่อนวัน" : ""}</p></div>
+          ${day.off_schedule.length ? `<div class="q-slots"><section class="q-slot"><div class="q-slot-head"><b>คิวที่จองไว้วันนี้</b></div><ul>${day.off_schedule.map((b) => qRow(b)).join("")}</ul></section></div>` : ""}`}
       <p class="muted small" style="margin-top:14px">วันนี้รับได้รอบละ ${day.slots[0] ? day.slots[0].capacity : (C.capacity)} คน · วันธรรมดา ${C.capacity} คน / เสาร์-อาทิตย์และวันหยุดนักขัตฯ ${C.capacity_weekend || C.capacity} คน${ME.role !== "staff" ? ` · <a href="#aday" data-go="aday">ปิดรอบหรือตั้งวันหยุด</a>` : ""}</p>`;
     } else if (tab === "slips") {
       body = slips.length ? `<p class="muted small">ลูกค้าโอนผ่านเว็บแล้วแนบสลิป เช็คในแอปธนาคารว่าเงินเข้าจริงแล้วกด “ยืนยันรับโอน”</p><ul class="q-list">${slips.map((b) => qRow(b, { when: true })).join("")}</ul>` : '<p class="empty">ไม่มีสลิปรอตรวจ</p>';
@@ -1436,6 +1537,7 @@
     const cl = $("[data-qclose]"); if (cl) cl.addEventListener("click", () => { R.qn = null; render(); });
     const f = $("#qn");
     if (f) {
+      custSuggest($("#qn-name"), $("#qn-phone"), $("#qn-sug"), keepForm);
       $("#qn-day").addEventListener("change", () => { keepForm(); R.qn.hm = ""; render(); });
       $("#qn-people").addEventListener("change", () => { keepForm(); render(); });
       $$("input[name=qn-pt]").forEach((r) => r.addEventListener("change", () => { keepForm(); render(); }));
@@ -1449,14 +1551,29 @@
     }
     bindSlipButtons();
     $$("[data-qsig]").forEach((b) => b.addEventListener("click", () => { R.qSig = R.qSig === b.dataset.qsig ? "" : b.dataset.qsig; R.qOpen = R.qCheckin = R.qSlip = ""; render(); }));
-    $$("[data-qpeople]").forEach((b) => b.addEventListener("click", () => { R.qPeople = R.qPeople === b.dataset.qpeople ? "" : b.dataset.qpeople; R.qOpen = R.qCheckin = R.qSlip = ""; R.flash = R.flashErr = ""; render(); }));
+    $$("[data-qpeople]").forEach((b) => b.addEventListener("click", () => { R.qPeople = R.qPeople === b.dataset.qpeople ? "" : b.dataset.qpeople; R.qOpen = R.qCheckin = R.qSlip = R.pQr = ""; R.ppFound = null; R.ppQ = ""; R.flash = R.flashErr = ""; render(); }));
     $$("[data-pin]").forEach((b) => b.addEventListener("click", () => act(async () => { await rpc("staff_checkin_person", { p_id: Number(b.dataset.pin), p_on: true }, true); return "เช็คอินแล้ว"; })));
     $$("[data-pout]").forEach((b) => b.addEventListener("click", () => act(async () => { await rpc("staff_checkin_person", { p_id: Number(b.dataset.pout), p_on: false }, true); return "ยกเลิกเช็คอินคนนี้แล้ว"; })));
     $$("[data-qpay2]").forEach((b) => b.addEventListener("click", () => act(async () => {
-      const [m, ref, st] = b.dataset.qpay2.split("|");
-      if (st === "confirmed") await rpc("staff_checkin", { p_ref: ref, p_method: m }, true); else await rpc("staff_take_payment", { p_ref: ref, p_method: m }, true);
+      const [m, ref] = b.dataset.qpay2.split("|");
+      await rpc("staff_take_payment", { p_ref: ref, p_method: m }, true);
       return "รับเงิน" + METHOD[m] + "แล้ว";
     })));
+    $$("[data-punlink]").forEach((b) => b.addEventListener("click", () => act(async () => { await rpc("staff_unlink_person", { p_id: Number(b.dataset.punlink) }, true); return "เอาชื่อออกจากคิวนี้แล้ว ลงทะเบียนคนที่ถูกต้องได้เลย"; })));
+    $$("[data-pqr]").forEach((b) => b.addEventListener("click", () => { R.pQr = R.pQr === b.dataset.pqr ? "" : b.dataset.pqr; render(); }));
+    const ppf = $("[data-ppfind]");
+    if (ppf) ppf.addEventListener("submit", async (e) => {
+      e.preventDefault(); const q = $("#pp-q").value.trim(); R.ppQ = q; R.ppFor = ppf.dataset.ppfind;
+      if (q.length < 2) { R.ppFound = null; render(); return; }
+      try { R.ppFound = await rpc("staff_people_search", { p_q: q }, true); } catch (err) { R.ppFound = []; R.flashErr = errText(err); }
+      render();
+    });
+    $$("[data-pppick]").forEach((b) => b.addEventListener("click", () => {
+      const [i, ref, wt] = b.dataset.pppick.split("|"), x = (R.ppFound || [])[Number(i)]; if (!x) return;
+      R.ppFound = null; R.ppQ = "";
+      startHandover(ref, wt, { first_name: x.first_name || "", last_name: x.last_name || "", email: x.email || "", phone: x.phone || "" });
+    }));
+    bindHandoverButtons();
     $$("[data-qgroup]").forEach((b) => b.addEventListener("click", () => act(async () => { await rpc("staff_checkin", { p_ref: b.dataset.qgroup, p_method: "" }, true); return "เช็คอินทั้งกลุ่มแล้ว (ไม่ได้ลงทะเบียนรายคน)"; })));
     const qq = $("[data-qqr]"); if (qq) qq.addEventListener("click", () => { R.qQr = !R.qQr; render(); });
     $$("[data-qslip]").forEach((b) => b.addEventListener("click", () => { R.qSlip = R.qSlip === b.dataset.qslip ? "" : b.dataset.qslip; R.qOpen = R.qCheckin = ""; render(); }));
@@ -1490,6 +1607,16 @@
   let renderSeq = 0;
   async function render() {
     const seq = ++renderSeq;
+    // a team device on the registration page stays there until the team takes it back (see startHandover)
+    if (session) {
+      const ho = handover();
+      if (ho) {
+        if (R.view !== "waiver" || R.wref !== String(ho.ref || "").toUpperCase() || R.wtok !== (ho.wtok || "")) {
+          Object.assign(R, { view: "waiver", wref: String(ho.ref || "").toUpperCase(), wtok: ho.wtok || "" });
+          try { history.replaceState(null, "", "#waiver" + (ho.ref ? "/" + ho.ref + "/" + ho.wtok : "")); } catch (e) { /* ignore */ }
+        }
+      } else if (R.view === "waiver") store.set(HO_KEY, { ref: R.wref || "", wtok: R.wtok || "", at: Date.now() });
+    }
     const isAdm = ADMIN.includes(R.view);
     document.documentElement.lang = isAdm ? "th" : lang;
     document.body.dataset.mode = isAdm ? "adm" : "pub";
@@ -1507,7 +1634,7 @@
           else if (ME.role === "staff" && !["queue", "apassword"].includes(R.view)) { R.view = "queue"; history.replaceState(null, "", "#queue"); html = await viewQueue(); }
           else html = await ({ queue: viewQueue, admin: viewDashboard, aday: viewDay, abooking: viewAdminBooking, anew: viewNew, asearch: viewSearch, asettings: viewSettings, ateam: viewTeam, acustomers: viewCustomers, apassword: viewPassword }[R.view])();
         }
-      } else html = await ({ home: viewHome, book: viewBook, booking: viewBooking, my: viewMy, profile: viewProfile, privacy: viewPrivacy, terms: viewTerms, waiver: viewWaiver }[R.view] || viewHome)();
+      } else html = await ({ home: viewHome, book: viewBook, booking: viewBooking, my: viewMy, profile: viewProfile, privacy: viewPrivacy, terms: viewTerms, waiver: viewWaiver, authok: viewAuthOk }[R.view] || viewHome)();
     } catch (e) {
       if (e.code === "not_staff" || /JWT/i.test(e.message)) { signOut(); ME = null; R.flashErr = errText(e); html = viewLogin(); }
       else html = `<div class="pub"><section class="err-page"><div class="wrap"><h1>${P("โหลดข้อมูลไม่สำเร็จ", "Couldn't load")}</h1><p class="lede">${esc(errText(e))}</p><button class="btn btn--primary" type="button" data-reload>${P("ลองใหม่", "Try again")}</button></div></section></div>`;
@@ -1515,7 +1642,7 @@
     if (seq !== renderSeq) return; // a newer screen was requested meanwhile
     app.innerHTML = html;
     bindCommon();
-    const binders = { waiver: bindWaiver, profile: bindProfile, queue: bindQueue, book: bindBook, booking: bindBooking, my: bindMy, aday: bindDay, abooking: bindAdminBooking, anew: bindNew, asearch: bindSearch, asettings: bindSettings, ateam: bindTeam, acustomers: bindCustomers, apassword: bindPassword };
+    const binders = { authok: bindAuthOk, waiver: bindWaiver, profile: bindProfile, queue: bindQueue, book: bindBook, booking: bindBooking, my: bindMy, aday: bindDay, abooking: bindAdminBooking, anew: bindNew, asearch: bindSearch, asettings: bindSettings, ateam: bindTeam, acustomers: bindCustomers, apassword: bindPassword };
     if (isAdm && !$(".adm .shell") && !$(".q-page")) bindLogin(); else if (binders[R.view]) binders[R.view]();
     if (R.anchor) { const a = document.getElementById(R.anchor); R.anchor = ""; if (a) a.scrollIntoView(); }
   }
@@ -1532,6 +1659,18 @@
     const side = $("[data-side]"); if (side) side.addEventListener("click", () => { R.sideOpen = !R.sideOpen; render(); });
     $$("[data-cust-out]").forEach((a) => a.addEventListener("click", (e) => { e.preventDefault(); custOut(); BK.name = ""; BK.phone = ""; render(); }));
     $$("[data-signout]").forEach((so) => so.addEventListener("click", (e) => { e.preventDefault(); signOut(); ME = null; R.inviteCode = ""; go("admin"); }));
+    // hand-over: the team holds "ทีมงาน" for 2 seconds (finger, mouse, or Enter/Space) to take the device back
+    const hx = $("[data-hoexit]");
+    if (hx) {
+      let t = 0;
+      const stop = () => { clearTimeout(t); t = 0; hx.classList.remove("is-holding"); };
+      const start = () => { if (t) return; hx.classList.add("is-holding"); t = setTimeout(() => { stop(); endHandover(); }, 2000); };
+      hx.addEventListener("pointerdown", (e) => { e.preventDefault(); start(); });
+      ["pointerup", "pointerleave", "pointercancel"].forEach((ev) => hx.addEventListener(ev, stop));
+      hx.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); start(); } });
+      hx.addEventListener("keyup", stop);
+      hx.addEventListener("contextmenu", (e) => e.preventDefault());
+    }
     $$("[data-confirm]").forEach((b) => b.addEventListener("click", (e) => { if (b.dataset.armed === "1") return; e.stopImmediatePropagation(); e.preventDefault(); b.dataset.armed = "1"; const o = b.textContent; b.textContent = b.dataset.confirm; setTimeout(() => { if (b.isConnected) { b.dataset.armed = ""; b.textContent = o; } }, 4000); }, true));
   }
 
@@ -1542,7 +1681,7 @@
     const [v, a, b] = h.split("/");
     if (v === "booking" && a && b) Object.assign(R, { view: "booking", ref: a, token: b, justBooked: false });
     else if (v === "waiver") Object.assign(R, { view: "waiver", wref: (a || "").toUpperCase(), wtok: /^[0-9a-f-]{36}$/i.test(b || "") ? b : "", wdone: null, wErr: {}, wfound: null });
-    else if (["home", "book", "my", "profile", "privacy", "terms"].concat(ADMIN.filter((x) => x !== "abooking")).includes(v)) R.view = v;
+    else if (["home", "book", "my", "profile", "privacy", "terms", "authok"].concat(ADMIN.filter((x) => x !== "abooking")).includes(v)) R.view = v;
     else R.view = "home";
   }
   // back-office screens fetch fresh data on their own: every 30 seconds, and whenever the tab comes back into view,

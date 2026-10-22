@@ -1134,3 +1134,30 @@ body[data-mode=adm]{background:#f6f5ee}
   .adm .pp-list img { width: 72px; }
   .adm .pp-list li > .pp-ok, .adm .pp-list li > .btn { grid-column: 2; justify-self: start; }
 }
+
+/* back office: known customers under the booking forms, and the lookup in the people panel */
+.adm .w-found { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.adm .w-found button { width: 100%; text-align: left; display: grid; gap: 2px; padding: 9px 12px; border: 1px solid #d6d1b9; border-radius: 12px; background: #fff; color: inherit; font: inherit; cursor: pointer; }
+.adm .w-found button:hover, .adm .w-found button:focus-visible { border-color: var(--leaf-2, #557f64); }
+.adm .w-found button span { font-size: .85rem; color: var(--ink-3, #5d675f); }
+.adm .q-sug { display: grid; gap: 6px; margin-top: 8px; max-width: 640px; }
+.adm .q-sug:empty { display: none; }
+.adm .q-sug p { margin: 0; }
+.adm .pp-add { display: grid; gap: 10px; }
+.adm .pp-add > p { margin: 0; }
+.adm .pp-find { display: grid; gap: 6px; max-width: 520px; }
+.adm .pp-find .code-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+.adm .pp-qr { display: grid; grid-template-columns: 160px 1fr; gap: 12px; align-items: center; }
+.adm .pp-qr .qr { width: 160px; height: auto; }
+@media (max-width: 560px) { .adm .pp-qr { grid-template-columns: 1fr; } }
+
+/* hand-over: the team's device on the registration page (no menus; hold "ทีมงาน" to go back) */
+.pub.is-bare .site-header .brand { cursor: default; }
+.pub .ho-foot { padding: 32px 0 40px; }
+.pub .ho-exit { position: relative; overflow: hidden; border: 1px dashed var(--line-2); background: transparent; color: var(--muted, #5d675f); font: inherit; font-size: .8rem; padding: 8px 16px; border-radius: 999px; cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: none; }
+.pub .ho-exit::before { content: ""; position: absolute; inset: 0; background: var(--line-2); transform: scaleX(0); transform-origin: left center; }
+.pub .ho-exit.is-holding::before { transform: scaleX(1); transition: transform 2s linear; }
+.pub .ho-exit span { position: relative; }
+@media (prefers-reduced-motion: reduce) { .pub .ho-exit.is-holding::before { transition: none; opacity: .5; } }
+.pub .waiver-cta.is-done p { display: flex; gap: 8px; align-items: center; }
+.pub .waiver-cta.is-done svg { width: 22px; height: 22px; flex: none; }

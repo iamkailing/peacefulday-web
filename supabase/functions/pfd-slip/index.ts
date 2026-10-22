@@ -28,8 +28,11 @@ async function verify(b64: string): Promise<Slip> {
     const j = await r.json().catch(() => ({}));
     if (!r.ok || !j || j.success === false || !j.data) {
       const e = (j && j.error) || {}, code = String(e.code || j.message || "HTTP " + r.status);
-      if (code === "SLIP_PENDING") return { err: "สลิปธนาคารกรุงเทพยังตรวจไม่ได้ในช่วง 5 นาทีแรกหลังโอน", wait: true };
-      if (/NOT_FOUND|INVALID|QR/i.test(code) && r.status < 500) return { err: "อ่าน QR ในสลิปไม่ได้ ใช้รูปสลิปจากแอปธนาคารที่เห็น QR ชัด" };
+      if (code === "SLIP_PENDING") return { err: "สลิปธนาคารกรุงเทพยังตรวจไม่ได้ในช่วง 5 นาทีแรกหลังโอน ระบบจะลองตรวจอีกครั้ง", wait: true };
+      // our side (key, quota, too many requests) or the service is down: try again later; anything else about the
+      // picture itself (no slip QR, not a real slip, unreadable) goes back to the customer
+      const ours = r.status === 401 || r.status === 403 || r.status === 429 || r.status >= 500 || /QUOTA|LIMIT|UNAUTHORI[SZ]ED|ACCESS_DENIED|NOT_VERIFIED|EXPIRED|DEACTIVATED|SERVER/i.test(code);
+      if (!ours) return { err: "อ่าน QR ในสลิปไม่ได้ ใช้รูปสลิปจากแอปธนาคารที่เห็น QR ชัด" };
       return { err: "ระบบตรวจสลิปตอบว่า " + String(e.message || code).slice(0, 80), wait: true };
     }
     const d = j.data, raw = d.rawSlip || d, rc = raw.receiver || {}, acc = rc.account || {};
@@ -48,10 +51,24 @@ const normName = (s: string) => String(s || "").toLowerCase()
   .replace(/(นางสาว|นาง|นาย|น\.ส\.|บจก\.?|บริษัท|จำกัด|mr\.?|mrs\.?|ms\.?|miss|co\.?,?\s*ltd\.?|company|limited)/g, "")
   .replace(/[^a-z0-9ก-๙]/g, "");
 
-// the receiver name on the slip is the shop's account name (slips often cut long names short, so a long enough start counts)
-function nameMatches(slipNames: string[], holder: string): boolean {
-  const wants = String(holder || "").split(/[|/,]/).map(normName).filter((x) => x.length >= 3);
-  return slipNames.some((n) => { const g = normName(n); return g.length >= 3 && wants.some((w) => g === w || (g.length >= 6 && w.startsWith(g)) || (w.length >= 6 && g.startsWith(w))); });
+// the receiver name on the slip is the shop's account name: 2 = the same name, 1 = the slip cut the name short
+// (banks print "น.ส. กาญจนา ส"), which only counts when it runs past the first name into the surname; 0 = no match.
+// The owner can list more than one account name in settings, separated by / or |.
+function nameMatch(slipNames: string[], holder: string): 0 | 1 | 2 {
+  let best: 0 | 1 | 2 = 0;
+  for (const want of String(holder || "").split(/[|/]/)) {
+    const w = normName(want);
+    if (w.length < 3) continue;
+    const first = normName(want.replace(/^\s*(นางสาว|นาง|นาย|น\.ส\.|mr\.?|mrs\.?|ms\.?|miss)\s*/i, "").trim().split(/\s+/)[0] || "");
+    for (const n of slipNames) {
+      const g = normName(n);
+      if (g.length < 3) continue;
+      if (g === w) return 2;
+      if (g.length >= 6 && w.startsWith(g) && g.length > first.length) best = 1;          // the slip cut it short
+      if (w.length >= 6 && g.startsWith(w) && w.length > first.length) best = 1;          // the name in settings is the short one
+    }
+  }
+  return best;
 }
 // a masked account number ("xxx-x-x5899-x") agrees with the shop's number digit by digit, in the same positions
 function accountMatches(shown: string, full: string): boolean {
@@ -71,11 +88,12 @@ function judge(v: Slip, b: Record<string, any>): { result: "ok" | "bad" | "manua
   if (t < Date.parse(b.created_at) - 30 * 60e3) return { result: "bad", note: "สลิปนี้โอนก่อนการจอง กรุณาใช้สลิปของการโอนครั้งนี้" };
   if (t - Date.now() > 10 * 60e3) return { result: "bad", note: "เวลาในสลิปไม่ถูกต้อง" };
   const mine = [b.account, b.promptpay].map((x: string) => String(x || "").replace(/\D/g, "")).filter((x: string) => x.length >= 6);
-  const nameOk = nameMatches(v.names || [], b.holder);
+  const nm = nameMatch(v.names || [], b.holder);
   const acctOk = (v.accts || []).some((a) => mine.some((m: string) => accountMatches(a, m)));
   const acctShown = (v.accts || []).some((a) => a.replace(/\D/g, "").length >= 4);
-  if (nameOk && (acctOk || v.matched)) return { result: "ok", note: v.amount! > Number(b.total) ? `โอนเกิน ${v.amount! - Number(b.total)} บาท` : "" };
-  if (!nameOk && acctShown && !acctOk && !v.matched && (v.names || []).length) return { result: "bad", note: "บัญชีผู้รับในสลิปไม่ตรงกับบัญชีร้าน" };
+  // the receiver must be the shop: its name AND its account (or EasySlip's own match against the shop's registered account)
+  if (nm > 0 && (acctOk || v.matched)) return { result: "ok", note: v.amount! > Number(b.total) ? `โอนเกิน ${v.amount! - Number(b.total)} บาท` : "" };
+  if (nm === 0 && acctShown && !acctOk && !v.matched && (v.names || []).length) return { result: "bad", note: "บัญชีผู้รับในสลิปไม่ตรงกับบัญชีร้าน" };
   return { result: "manual", note: "ตรวจบัญชีผู้รับอัตโนมัติไม่ได้ชัดเจน ทีมงานจะตรวจให้" + ((v.names || []).length ? ` (ผู้รับในสลิป: ${(v.names || []).join(" / ").slice(0, 80)})` : "") };
 }
 
@@ -85,15 +103,18 @@ Deno.serve(async (req) => {
     const p = await req.json().catch(() => ({}));
     const ref = String(p.ref || "").slice(0, 20), token = String(p.token || "");
     if (!/^[0-9a-f-]{36}$/i.test(token)) return out({ status: "manual" }, 400);
+    // taking the slip marks it as being checked, so a second call at the same moment gets nothing
     const b = await rpc("slip_check_get", { p_ref: ref, p_token: token });
     if (!b) return out({ status: "manual" }, 404);
-    if (b.pay !== "review" || b.status !== "confirmed") return out({ status: b.pay });
+    // a slip the team already approved by hand is still read once, so its bank reference is on record
+    const reviewing = b.pay === "review" && b.status === "confirmed";
+    if (!reviewing && !(b.used && !b.has_ref)) return out({ status: b.pay });
     if (!SLIP_KEY || !b.auto) return out({ status: "manual" });
     const m = /^data:image\/[a-z]+;base64,(.+)$/.exec(String(b.data || ""));
     if (!m) return out({ status: "manual" });
     const v = await verify(String(b.data)); // EasySlip takes the data URI as is (the prefix helps it detect the image type)
     const { result, note } = v.err ? { result: v.wait ? "manual" : "bad", note: v.err } : judge(v, b);
-    const res = await rpc("slip_check_set", { p_slip_id: b.slip_id, p_result: result, p_ref: v.ref || null, p_amount: isFinite(v.amount!) ? v.amount : null, p_note: note });
+    const res = await rpc("slip_check_set", { p_slip_id: b.slip_id, p_result: result, p_ref: v.ref || null, p_amount: isFinite(v.amount!) ? v.amount : null, p_note: note, p_retry: !!(v.err && v.wait) });
     return out(res);
   } catch (_e) {
     return out({ status: "manual" });
