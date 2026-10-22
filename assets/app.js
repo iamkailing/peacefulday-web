@@ -962,8 +962,8 @@
 <section class="section" style="padding-top:8px"><div class="wrap waiver">${flashHTML()}
   <form class="panel waiver-form" id="wf" novalidate>
     <h2>${P("ข้อมูลผู้ใช้บริการ", "Your details")}</h2>
-    <div class="row-2">${field("first_name", P("ชื่อ", "First name"), `<input id="w-first_name" type="text" maxlength="60" autocomplete="given-name" value="${esc(F.first_name)}">`)}${field("last_name", P("นามสกุล", "Last name"), `<input id="w-last_name" type="text" maxlength="60" autocomplete="family-name" value="${esc(F.last_name)}">`)}</div>
-    <div class="row-2">${field("email", P("อีเมล", "Email"), `<input id="w-email" type="email" maxlength="200" autocomplete="email" inputmode="email" value="${esc(F.email)}">`)}${field("phone", P("เบอร์โทร", "Phone"), `<input id="w-phone" type="tel" maxlength="20" autocomplete="tel" inputmode="tel" placeholder="08x-xxx-xxxx" value="${esc(F.phone)}">`)}</div>
+    <div class="row-2">${field("first_name", P("ชื่อ", "First name"), `<input id="w-first_name" type="text" maxlength="60" autocomplete="given-name" enterkeyhint="next" value="${esc(F.first_name)}">`)}${field("last_name", P("นามสกุล", "Last name"), `<input id="w-last_name" type="text" maxlength="60" autocomplete="family-name" enterkeyhint="next" value="${esc(F.last_name)}">`)}</div>
+    <div class="row-2">${field("email", P("อีเมล", "Email"), `<input id="w-email" type="email" maxlength="200" autocomplete="email" inputmode="email" autocapitalize="off" spellcheck="false" enterkeyhint="next" value="${esc(F.email)}">`)}${field("phone", P("เบอร์โทร", "Phone"), `<input id="w-phone" type="tel" maxlength="20" autocomplete="tel" inputmode="tel" enterkeyhint="done" placeholder="08x-xxx-xxxx" value="${esc(F.phone)}">`)}</div>
     <fieldset class="field"><legend>${P("บริการที่เลือก", "Selected services")}</legend><div class="radio-row">${svc("cold", "อ่างน้ำเย็น", "Cold-water immersion")}${svc("sauna", "ซาวน่า", "Sauna")}${svc("both", "ใช้ทั้งสองบริการ", "Both")}</div></fieldset>
     <div class="prose w-terms"><h2>${esc(W.title)}</h2><p class="small">${esc(W.intro)}</p>${W.sections.map(([h, items]) => `<h3>${esc(h)}</h3><ul>${items.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>`).join("")}</div>
     <label class="check${fe.agree ? " has-error" : ""}"><input type="checkbox" id="w-agree"${F.agree ? " checked" : ""}><span>${esc(W.agree)}</span></label>
@@ -980,18 +980,36 @@
   function bindWaiver() {
     const nx = $("[data-wnext]"); if (nx) nx.addEventListener("click", () => { R.wdone = null; R.wf = freshWF(); R.wErr = {}; R.wsig = null; render(); window.scrollTo(0, 0); });
     const keep = () => { const F = R.wf; ["first_name", "last_name", "email", "phone"].forEach((k) => { const i = $("#w-" + k); if (i) F[k] = i.value; }); const r = $("input[name=w-svc]:checked"); F.services = r ? r.value : "both"; const a = $("#w-agree"); if (a) F.agree = a.checked; const m = $("#w-mkt"); if (m) F.mkt = m.checked; };
+    const wf = $("#wf"); if (wf) { wf.addEventListener("input", keep); wf.addEventListener("change", keep);
+      // the phone keyboard's Enter/Next moves to the next box instead of sending a half-filled form
+      const order = ["#w-first_name", "#w-last_name", "#w-email", "#w-phone"];
+      order.forEach((sel, i) => { const el = $(sel); if (el) el.addEventListener("keydown", (e) => { if (e.key !== "Enter") return; e.preventDefault(); const nx = order[i + 1] && $(order[i + 1]); if (nx) nx.focus(); else el.blur(); }); });
+    } // typed details survive any redraw (language switch, an error)
     const cv = $("#sig"); if (!cv) return;
     const ratio = Math.max(1, window.devicePixelRatio || 1), box = cv.parentElement;
-    cv.width = box.clientWidth * ratio; cv.height = box.clientHeight * ratio;
-    const cx = cv.getContext("2d"); cx.scale(ratio, ratio); cx.lineWidth = 2.4; cx.lineCap = "round"; cx.lineJoin = "round"; cx.strokeStyle = "#111";
-    let drawing = false, inked = 0, last = null;
+    let cx, drawing = false, inked = 0, last = null, w0 = 0, h0 = 0;
+    // size the drawing surface to the box; when the phone turns or the page reflows, keep what was drawn
+    const fit = () => {
+      const w = box.clientWidth, h = box.clientHeight; if (!w || !h || (w === w0 && h === h0)) return;
+      const keepImg = inked ? cv.toDataURL("image/png") : null;
+      cv.width = w * ratio; cv.height = h * ratio; w0 = w; h0 = h;
+      cx = cv.getContext("2d"); cx.scale(ratio, ratio); cx.lineWidth = 2.4; cx.lineCap = "round"; cx.lineJoin = "round"; cx.strokeStyle = "#111";
+      if (keepImg) { const im = new Image(); im.onload = () => cx.drawImage(im, 0, 0, w, h); im.src = keepImg; }
+    };
+    fit();
+    if (window.ResizeObserver) new ResizeObserver(() => { if (!drawing) fit(); }).observe(box);
     // a signature already drawn survives a re-render (a lookup, or a form error)
     function saveSig() { R.wsig = inked >= 40 ? cv.toDataURL("image/png") : null; }
     if (R.wsig) { const img = new Image(); img.onload = () => { cx.drawImage(img, 0, 0, box.clientWidth, box.clientHeight); }; img.src = R.wsig; inked = 100; box.classList.add("has-ink"); }
     const pt = (e) => { const r = cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
     cv.addEventListener("pointerdown", (e) => { e.preventDefault(); cv.setPointerCapture(e.pointerId); drawing = true; last = pt(e); box.classList.add("has-ink"); box.classList.remove("has-error"); $("#sig-err").textContent = ""; });
-    cv.addEventListener("pointermove", (e) => { if (!drawing) return; const p = pt(e); cx.beginPath(); cx.moveTo(last[0], last[1]); cx.lineTo(p[0], p[1]); cx.stroke(); inked += Math.hypot(p[0] - last[0], p[1] - last[1]); last = p; });
-    const up = () => { drawing = false; }; cv.addEventListener("pointerup", up); cv.addEventListener("pointercancel", up);
+    cv.addEventListener("pointermove", (e) => {
+      if (!drawing) return;
+      // phones send several finger positions per event; use them all so fast strokes stay smooth
+      const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
+      for (const ev of evs.length ? evs : [e]) { const p = pt(ev); cx.beginPath(); cx.moveTo(last[0], last[1]); cx.lineTo(p[0], p[1]); cx.stroke(); inked += Math.hypot(p[0] - last[0], p[1] - last[1]); last = p; }
+    });
+    const up = () => { if (drawing) saveSig(); drawing = false; }; cv.addEventListener("pointerup", up); cv.addEventListener("pointercancel", up);
     $("[data-sigclear]").addEventListener("click", () => { cx.clearRect(0, 0, cv.width, cv.height); inked = 0; R.wsig = null; box.classList.remove("has-ink"); });
     $("#wf").addEventListener("submit", async (e) => {
       e.preventDefault(); keep(); const F = R.wf, er = {};
@@ -1625,7 +1643,7 @@
           Object.assign(R, { view: "waiver", wref: String(ho.ref || "").toUpperCase(), wtok: ho.wtok || "" });
           try { history.replaceState(null, "", "#waiver" + (ho.ref ? "/" + ho.ref + "/" + ho.wtok : "")); } catch (e) { /* ignore */ }
         }
-      } else if (R.view === "waiver") store.set(HO_KEY, { ref: R.wref || "", wtok: R.wtok || "", at: Date.now() });
+      }
     }
     const isAdm = ADMIN.includes(R.view);
     document.documentElement.lang = isAdm ? "th" : lang;

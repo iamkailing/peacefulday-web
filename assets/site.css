@@ -1161,3 +1161,5 @@ body[data-mode=adm]{background:#f6f5ee}
 @media (prefers-reduced-motion: reduce) { .pub .ho-exit.is-holding::before { transition: none; opacity: .5; } }
 .pub .waiver-cta.is-done p { display: flex; gap: 8px; align-items: center; }
 .pub .waiver-cta.is-done svg { width: 22px; height: 22px; flex: none; }
+
+@media (max-width: 560px) { .pub .sigpad { height: 210px; } }
